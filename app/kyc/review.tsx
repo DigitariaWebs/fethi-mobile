@@ -1,5 +1,5 @@
 import { ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
@@ -11,6 +11,8 @@ export default function KYCReview() {
   const C = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { signup } = useLocalSearchParams<{ signup?: string }>();
+  const isSignup = signup === '1';
   const front = useKYC((s) => s.identityFront);
   const back = useKYC((s) => s.identityBack);
   const selfie = useKYC((s) => s.selfie);
@@ -55,7 +57,7 @@ export default function KYCReview() {
           state={front && back && selfie ? undefined : 'disabled'}
           onPress={async () => {
             await submit();
-            router.replace('/kyc/status' as any);
+            router.replace((isSignup ? '/onboarding/success' : '/kyc/status') as any);
           }}
         >
           Envoyer pour vérification

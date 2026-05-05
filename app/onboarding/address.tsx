@@ -147,7 +147,8 @@ export default function Address() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 140 }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -358,10 +359,6 @@ export default function Address() {
       {/* Bottom CTA */}
       <View
         style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
           paddingHorizontal: 24,
           paddingTop: 12,
           paddingBottom: 24 + insets.bottom,

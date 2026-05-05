@@ -1,19 +1,80 @@
-import { Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import Svg, { Circle } from 'react-native-svg';
 
-import { useColors, radius as R, shadow as Sh, t } from '@/theme';
+import { useColors, useIsDark, radius as R, shadow as Sh, t } from '@/theme';
 import { MSAvatar, MSMapPin } from '@/components';
 import { MapBackground } from '@/components/map/MapBackground';
 import { LISTINGS } from '@/lib/fixtures';
 
-// Slide 1 — map of pins centered on user
+// Lazy-import expo-maps so the illustration still renders in environments
+// where the native module is missing (Expo Go, web). Real iOS/Android dev
+// builds get AppleMaps / GoogleMaps; everything else falls back to the
+// schematic MapBackground.
+let ExpoMaps: typeof import('expo-maps') | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  ExpoMaps = require('expo-maps');
+} catch {
+  ExpoMaps = null;
+}
+
+const LILLE = { lat: 50.6292, lng: 3.0573 };
+
+// Slide 1 — real map of pins centered on user's neighbourhood
 export function MapIllustration() {
   const C = useColors();
+  const isDark = useIsDark();
+  const colorScheme = isDark ? 'DARK' : 'LIGHT';
+  const cameraPosition = {
+    coordinates: { latitude: LILLE.lat, longitude: LILLE.lng },
+    zoom: 16,
+  };
+
+  const AppleMaps = ExpoMaps && Platform.OS === 'ios' ? (ExpoMaps as any).AppleMaps : null;
+  const GoogleMaps =
+    ExpoMaps && Platform.OS === 'android' ? (ExpoMaps as any).GoogleMaps : null;
+
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        <MapBackground />
+      {/* Real map — locked decorative (no gestures, no chrome). taps fall
+          through so the slide pager stays swipeable. */}
+      <View
+        pointerEvents="none"
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+      >
+        {AppleMaps ? (
+          <AppleMaps.View
+            style={{ flex: 1 }}
+            cameraPosition={cameraPosition}
+            colorScheme={colorScheme}
+            properties={{ isTrafficEnabled: false, mapType: 'STANDARD' }}
+            uiSettings={{
+              compassEnabled: false,
+              myLocationButtonEnabled: false,
+              scaleBarEnabled: false,
+              togglePitchEnabled: false,
+            }}
+          />
+        ) : GoogleMaps ? (
+          <GoogleMaps.View
+            style={{ flex: 1 }}
+            cameraPosition={cameraPosition}
+            colorScheme={colorScheme}
+            properties={{ isTrafficEnabled: false }}
+            uiSettings={{
+              compassEnabled: false,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              scrollGesturesEnabled: false,
+              zoomGesturesEnabled: false,
+              rotationGesturesEnabled: false,
+              tiltGesturesEnabled: false,
+            }}
+          />
+        ) : (
+          <MapBackground />
+        )}
       </View>
       <View style={{ position: 'absolute', top: '20%', left: '15%' }}>
         <MSMapPin variant="thumb" label="€120" thumb={LISTINGS[0].thumb} />
@@ -55,7 +116,9 @@ export function MapIllustration() {
   );
 }
 
-// Slide 2 — Mini phone showing a listing being created
+// Slide 2 — Mini phone showing a listing being created. Designed to fit
+// inside the 380-px-tall slide container with a comfortable margin so
+// neither the photo nor the Publish CTA gets clipped.
 export function SellIllustration() {
   const C = useColors();
   return (
@@ -71,43 +134,49 @@ export function SellIllustration() {
         style={[
           Sh.strong,
           {
-            width: 200,
-            height: 360,
+            width: 220,
             backgroundColor: C.surface,
             borderRadius: 28,
-            padding: 16,
-            gap: 12,
+            padding: 14,
             overflow: 'hidden',
           },
         ]}
       >
         <View
           style={{
-            height: 160,
+            height: 150,
             borderRadius: R.md,
             overflow: 'hidden',
           }}
         >
           <Image
             source={{ uri: LISTINGS[0].photo }}
-            style={{ width: '100%', height: 160 }}
+            style={{ width: '100%', height: 150 }}
             contentFit="cover"
           />
         </View>
-        <Text style={[t('caption'), { color: C.n500 }]}>Title</Text>
         <Text
+          numberOfLines={2}
           style={{
             fontFamily: 'InstrumentSans-SemiBold',
-            fontSize: 15,
+            fontSize: 14,
             color: C.ink,
             lineHeight: 18,
+            marginTop: 12,
           }}
         >
           Vélo Peugeot années 80
         </Text>
-        <Text style={[t('caption'), { color: C.n500 }]}>Price</Text>
-        <Text style={[t('h3'), { color: C.ink }]}>€120</Text>
-        <View style={{ flex: 1 }} />
+        <Text
+          style={{
+            fontFamily: 'InstrumentSans-SemiBold',
+            fontSize: 18,
+            color: C.ink,
+            marginTop: 6,
+          }}
+        >
+          €120
+        </Text>
         <View
           style={{
             height: 36,
@@ -115,10 +184,11 @@ export function SellIllustration() {
             backgroundColor: C.primary,
             alignItems: 'center',
             justifyContent: 'center',
+            marginTop: 12,
           }}
         >
           <Text style={{ color: '#FFF', fontFamily: 'InstrumentSans-SemiBold', fontSize: 13 }}>
-            Publish
+            Publier
           </Text>
         </View>
       </View>
@@ -169,7 +239,7 @@ export function CommunityIllustration() {
             },
           ]}
         >
-          <Text style={[t('bodySm'), { color: '#FFF' }]}>Parfait, à 18h ✌️</Text>
+          <Text style={[t('bodySm'), { color: '#FFF' }]}>Parfait, à 18h !</Text>
         </View>
         <View style={{ marginTop: 8 }}>
           <MSAvatar name="Tom" size={48} />

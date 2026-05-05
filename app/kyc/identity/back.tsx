@@ -1,5 +1,5 @@
 import { ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useColors, t } from '@/theme';
 import { PageHeader } from '@/components';
@@ -12,11 +12,13 @@ export default function IdentityBack() {
   const router = useRouter();
   const setCapture = useKYC((s) => s.setCapture);
   const toast = useToast();
+  const { signup } = useLocalSearchParams<{ signup?: string }>();
+  const isSignup = signup === '1';
 
   const capture = () => {
     setCapture('identityBack', 'mock://id-back');
     toast.success('Verso capturé.');
-    router.push('/kyc/selfie' as any);
+    router.push((isSignup ? '/kyc/selfie?signup=1' : '/kyc/selfie') as any);
   };
 
   return (

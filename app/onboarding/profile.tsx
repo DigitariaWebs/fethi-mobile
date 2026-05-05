@@ -97,7 +97,8 @@ export default function Profile() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 220 }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -402,10 +403,6 @@ export default function Profile() {
 
       <View
         style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
           paddingHorizontal: 24,
           paddingTop: 12,
           paddingBottom: 24 + insets.bottom,
@@ -420,7 +417,7 @@ export default function Profile() {
           state={filled ? 'default' : 'disabled'}
           onPress={() => {
             setDisplayName(name);
-            router.push('/onboarding/success');
+            router.push('/kyc/intro?signup=1' as any);
           }}
         >
           Continuer

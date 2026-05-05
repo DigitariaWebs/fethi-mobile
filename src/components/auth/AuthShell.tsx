@@ -75,9 +75,10 @@ export function AuthShell({
       </View>
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={{
           paddingHorizontal: 24,
-          paddingBottom: 140 + insets.bottom,
+          paddingBottom: 24,
         }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -103,10 +104,6 @@ export function AuthShell({
 
       <View
         style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
           paddingHorizontal: 24,
           paddingTop: 12,
           paddingBottom: 24 + insets.bottom,

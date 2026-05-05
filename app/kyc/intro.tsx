@@ -1,5 +1,5 @@
-import { Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Pressable, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 
 import { useColors, radius as R, t } from '@/theme';
@@ -14,6 +14,8 @@ const POINTS = [
 export default function KYCIntro() {
   const C = useColors();
   const router = useRouter();
+  const { signup } = useLocalSearchParams<{ signup?: string }>();
+  const isSignup = signup === '1';
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
       <PageHeader title="Vérifie ton identité" />
@@ -53,10 +55,27 @@ export default function KYCIntro() {
           ))}
         </View>
       </View>
-      <View style={{ paddingHorizontal: 20, paddingBottom: 24 }}>
-        <MSButton size="lg" fullWidth onPress={() => router.push('/kyc/identity' as any)}>
+      <View style={{ paddingHorizontal: 20, paddingBottom: 24, gap: 8 }}>
+        <MSButton
+          size="lg"
+          fullWidth
+          onPress={() =>
+            router.push((isSignup ? '/kyc/identity?signup=1' : '/kyc/identity') as any)
+          }
+        >
           J'ai 3 minutes
         </MSButton>
+        {isSignup ? (
+          <Pressable
+            onPress={() => router.replace('/onboarding/success' as any)}
+            hitSlop={8}
+            style={{ paddingVertical: 10, alignItems: 'center' }}
+          >
+            <Text style={[t('body'), { color: C.n600, fontFamily: 'InstrumentSans-Medium' }]}>
+              Plus tard
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

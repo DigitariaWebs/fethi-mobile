@@ -1,4 +1,4 @@
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { useColors, t } from '@/theme';
@@ -62,18 +62,25 @@ export default function SettingsHub() {
         </SettingsGroup>
 
         <SettingsGroup>
-          <SettingsRow
-            kind="link"
-            label="Se déconnecter"
-            tint={C.danger}
+          <Pressable
             onPress={async () => {
               if (await confirm({ title: 'Se déconnecter ?', tone: 'destructive', confirmLabel: 'Se déconnecter' })) {
                 await reset();
                 router.replace('/welcome' as any);
               }
             }}
-            last
-          />
+            style={{ paddingVertical: 14, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text
+              style={{
+                fontFamily: 'InstrumentSans-SemiBold',
+                fontSize: 15,
+                color: C.danger,
+              }}
+            >
+              Se déconnecter
+            </Text>
+          </Pressable>
         </SettingsGroup>
 
         <Text style={[t('caption'), { color: C.n400, textAlign: 'center', marginTop: 22 }]}>

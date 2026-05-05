@@ -6,17 +6,30 @@
     "orientation": "portrait",
     "scheme": "mystreet",
     "userInterfaceStyle": "light",
+    "icon": "./assets/images/favicon.png",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.mystreet.app",
+      "icon": "./assets/images/favicon.png",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Allow MyStreet to show listings near you.",
         "NSCameraUsageDescription": "Allow MyStreet to take photos of items you're selling.",
-        "NSPhotoLibraryUsageDescription": "Allow MyStreet to upload photos of your listings."
+        "NSPhotoLibraryUsageDescription": "Allow MyStreet to upload photos of your listings.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.mystreet.app"
+      "package": "com.mystreet.app",
+      "icon": "./assets/images/favicon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/favicon.png",
+        "backgroundColor": "#D8542B"
+      },
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       "expo-router",
@@ -48,6 +61,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9c9e906b-2bd6-4143-b429-c9a23a67b541"
+      }
     }
   }
 }

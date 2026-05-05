@@ -302,14 +302,13 @@ export default function MapHomeScreen() {
         })}
       </View>
 
-      {/* Right-side locate control. Positioned beneath Apple Maps' built-in
-          3D / pitch toggle (which sits a little below the search bar at
-          top-right). Tapping recenters the camera on the current user. */}
+      {/* Left-side locate control. Tapping recenters the camera on the
+          current user. Sits below the type-filter pill row. */}
       <View
         style={{
           position: 'absolute',
           top: insets.top + 156,
-          right: 16,
+          left: 16,
           zIndex: 30,
         }}
       >

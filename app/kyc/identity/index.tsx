@@ -1,5 +1,5 @@
 import { ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useColors, t } from '@/theme';
 import { PageHeader } from '@/components';
@@ -12,12 +12,14 @@ export default function IdentityFront() {
   const router = useRouter();
   const setCapture = useKYC((s) => s.setCapture);
   const toast = useToast();
+  const { signup } = useLocalSearchParams<{ signup?: string }>();
+  const isSignup = signup === '1';
 
   const capture = () => {
     // Mock — backend would store the actual photo URI.
     setCapture('identityFront', 'mock://id-front');
     toast.success('Recto capturé.');
-    router.push('/kyc/identity/back' as any);
+    router.push((isSignup ? '/kyc/identity/back?signup=1' : '/kyc/identity/back') as any);
   };
 
   return (

@@ -1,5 +1,5 @@
 import { ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useColors, t } from '@/theme';
 import { PageHeader } from '@/components';
@@ -12,11 +12,13 @@ export default function Selfie() {
   const router = useRouter();
   const setCapture = useKYC((s) => s.setCapture);
   const toast = useToast();
+  const { signup } = useLocalSearchParams<{ signup?: string }>();
+  const isSignup = signup === '1';
 
   const capture = () => {
     setCapture('selfie', 'mock://selfie');
     toast.success('Selfie capturé.');
-    router.push('/kyc/review' as any);
+    router.push((isSignup ? '/kyc/review?signup=1' : '/kyc/review') as any);
   };
 
   return (
