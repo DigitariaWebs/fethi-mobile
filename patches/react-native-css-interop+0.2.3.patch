@@ -1,0 +1,47 @@
+diff --git a/node_modules/react-native-css-interop/.cache/android.js b/node_modules/react-native-css-interop/.cache/android.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/.cache/ios.js b/node_modules/react-native-css-interop/.cache/ios.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/.cache/macos.js b/node_modules/react-native-css-interop/.cache/macos.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/.cache/native.js b/node_modules/react-native-css-interop/.cache/native.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/.cache/windows.js b/node_modules/react-native-css-interop/.cache/windows.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/dist/metro/index.js b/node_modules/react-native-css-interop/dist/metro/index.js
+index c91ba6a..08626e6 100644
+--- a/node_modules/react-native-css-interop/dist/metro/index.js
++++ b/node_modules/react-native-css-interop/dist/metro/index.js
+@@ -176,6 +176,12 @@ async function startCSSProcessor(filePath, platform, isDev, { input, getCSSForPl
+                 ? css
+                 : getNativeJS((0, css_to_rn_1.cssToReactNativeRuntime)(css, options), debug)));
+             debug(`virtualStyles.emit ${platform}`);
++            // Metro >= 0.83 / Expo SDK 55 changed the haste change-event shape
++            // from `{ eventsQueue }` to `{ changes: { addedFiles, modifiedFiles,
++            // removedFiles }, rootDir }`. css-interop 0.2.3 still emits the old
++            // shape, which makes Metro's DependencyGraph crash with
++            // `Cannot read properties of undefined (reading 'addedFiles')`.
++            // We send both shapes so it works on either version.
+             haste.emit("change", {
+                 eventsQueue: [
+                     {
+@@ -188,6 +194,14 @@ async function startCSSProcessor(filePath, platform, isDev, { input, getCSSForPl
+                         type: "change",
+                     },
+                 ],
++                changes: {
++                    addedFiles: new Map(),
++                    modifiedFiles: new Map([
++                        [filePath, { size: 1, mtime: Date.now() }],
++                    ]),
++                    removedFiles: new Map(),
++                },
++                rootDir: process.cwd(),
+             });
+         }).then((css) => {
+             debug(`virtualStyles.initial ${platform}`);

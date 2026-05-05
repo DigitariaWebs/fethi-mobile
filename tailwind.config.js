@@ -1,0 +1,57 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './app/**/*.{js,jsx,ts,tsx}',
+    './src/**/*.{js,jsx,ts,tsx}',
+  ],
+  presets: [require('nativewind/preset')],
+  theme: {
+    extend: {
+      colors: {
+        primary:        '#C8553D',
+        'primary-hover':   '#B14732',
+        'primary-pressed':'#9A3C2B',
+        'primary-soft':   '#FBE9E2',
+        'primary-ink':    '#5C2419',
+        accent:         '#2F6B5E',
+        'accent-soft':  '#E4EDE9',
+        paper:          '#FBF8F4',
+        surface:        '#FFFFFF',
+        n50:            '#F5F1EB',
+        n100:           '#ECE6DD',
+        n200:           '#DDD5C8',
+        n300:           '#C2B7A4',
+        n400:           '#9C907C',
+        n500:           '#76695A',
+        n600:           '#574E42',
+        n700:           '#3B342C',
+        n800:           '#272320',
+        ink:            '#1F2421',
+        success:        '#3F7D5C',
+        'success-soft':'#E2EFE7',
+        warning:        '#C68A2E',
+        'warning-soft':'#F7ECD6',
+        danger:         '#B23A2A',
+        'danger-soft': '#F7E1DC',
+        info:           '#3A6BA3',
+        'info-soft':   '#E1EAF4',
+      },
+      fontFamily: {
+        display: ['InstrumentSerif'],
+        sans:    ['InstrumentSans'],
+        'sans-medium': ['InstrumentSans-Medium'],
+        'sans-semi':   ['InstrumentSans-SemiBold'],
+        'sans-bold':   ['InstrumentSans-Bold'],
+      },
+      borderRadius: {
+        sm: '6px', md: '10px', lg: '14px', xl: '20px', '2xl': '28px',
+      },
+      spacing: {
+        '0.5': '2px', '1': '4px', '2': '8px', '3': '12px', '4': '16px',
+        '5': '20px', '6': '24px', '8': '32px', '10': '40px', '12': '48px',
+        '16': '64px', '24': '96px',
+      },
+    },
+  },
+  plugins: [],
+};

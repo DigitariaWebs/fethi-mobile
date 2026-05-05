@@ -1,0 +1,26 @@
+diff --git a/node_modules/expo-maps/ios/AppleMapsViewiOS17.swift b/node_modules/expo-maps/ios/AppleMapsViewiOS17.swift
+index 7484170..b276c16 100644
+--- a/node_modules/expo-maps/ios/AppleMapsViewiOS17.swift
++++ b/node_modules/expo-maps/ios/AppleMapsViewiOS17.swift
+@@ -127,7 +127,7 @@ struct AppleMapsViewiOS17: View, AppleMapsViewProtocol {
+       .onChange(of: props.cameraPosition) { _, newValue in
+         state.mapCameraPosition = convertToMapCamera(position: newValue)
+       }
+-      .onMapCameraChange(frequency: .onEnd) { context in
++      .onMapCameraChange(frequency: .continuous) { context in
+         let cameraPosition = context.region.center
+         let longitudeDelta = context.region.span.longitudeDelta
+         let latitudeDelta = context.region.span.latitudeDelta
+diff --git a/node_modules/expo-maps/ios/AppleMapsViewiOS18.swift b/node_modules/expo-maps/ios/AppleMapsViewiOS18.swift
+index 7be247b..a2326c0 100644
+--- a/node_modules/expo-maps/ios/AppleMapsViewiOS18.swift
++++ b/node_modules/expo-maps/ios/AppleMapsViewiOS18.swift
+@@ -241,7 +241,7 @@ struct AppleMapsViewiOS18: View, AppleMapsViewProtocol {
+         state.mapCameraPosition = convertToMapCamera(position: newValue)
+       }
+       .onChange(of: state.selection, perform: handleSelectionChange)
+-      .onMapCameraChange(frequency: .onEnd) { context in
++      .onMapCameraChange(frequency: .continuous) { context in
+         state.lastKnownDistance = context.camera.distance
+         state.lastKnownHeading = context.camera.heading
+         state.lastKnownPitch = context.camera.pitch

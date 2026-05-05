@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "MyStreet",
+    "slug": "mystreet",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "mystreet",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mystreet.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Allow MyStreet to show listings near you.",
+        "NSCameraUsageDescription": "Allow MyStreet to take photos of items you're selling.",
+        "NSPhotoLibraryUsageDescription": "Allow MyStreet to upload photos of your listings."
+      }
+    },
+    "android": {
+      "package": "com.mystreet.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "26.0"
+          }
+        }
+      ],
+      "./plugins/withMinPodDeploymentTarget",
+      [
+        "expo-maps",
+        {
+          "requestLocationPermission": true,
+          "locationPermission": "Allow MyStreet to show listings near you."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow MyStreet to upload photos of your listings.",
+          "cameraPermission": "Allow MyStreet to take photos of items you're selling."
+        }
+      ],
+      "expo-video"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
