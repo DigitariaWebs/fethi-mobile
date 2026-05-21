@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useColors, useIsDark, radius as R, shadow as Sh, t } from '@/theme';
 import { Icon } from '@/components';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { authApi, ApiError } from '@/lib/api';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -15,19 +16,35 @@ export default function AuthEmail() {
   const [email, setEmail] = useState('');
   const [focused, setFocused] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [networkError, setNetworkError] = useState<string | null>(null);
   const valid = EMAIL_RE.test(email.trim());
-  const showError = email.length > 0 && !valid && !focused;
+  const showError =
+    networkError !== null || (email.length > 0 && !valid && !focused);
 
   const submit = async () => {
     if (!valid || submitting) return;
     setSubmitting(true);
-    // Simulate sending the magic-code email (real backend call goes here).
-    await new Promise((r) => setTimeout(r, 600));
-    setSubmitting(false);
-    router.push({
-      pathname: '/auth/otp',
-      params: { via: 'email', value: email.trim() },
-    });
+    setNetworkError(null);
+    const target = email.trim().toLowerCase();
+    try {
+      await authApi.requestOtp({
+        channel: 'EMAIL',
+        target,
+        purpose: 'LOGIN',
+      });
+      router.push({
+        pathname: '/auth/otp',
+        params: { via: 'email', value: target },
+      });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setNetworkError(err.message || 'Envoi impossible.');
+      } else {
+        setNetworkError('Impossible de contacter le serveur.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -77,7 +94,7 @@ export default function AuthEmail() {
       </View>
       {showError && (
         <Text style={[t('bodySm'), { color: C.danger, marginTop: 6, marginLeft: 4 }]}>
-          Cet e-mail ne semble pas valide.
+          {networkError ?? 'Cet e-mail ne semble pas valide.'}
         </Text>
       )}
 

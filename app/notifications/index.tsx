@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -11,13 +11,21 @@ export default function NotificationsScreen() {
   const C = useColors();
   const router = useRouter();
   const items = useNotifications((s) => s.items);
+  const load = useNotifications((s) => s.load);
   const markRead = useNotifications((s) => s.markRead);
   const markAllRead = useNotifications((s) => s.markAllRead);
   const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(() => {
+
+  // Charge depuis le backend au mount
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 700);
-  }, []);
+    await load();
+    setRefreshing(false);
+  }, [load]);
 
   // Group by today / yesterday / older.
   const groups = useMemo(() => {

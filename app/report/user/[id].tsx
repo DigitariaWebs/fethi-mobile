@@ -1,16 +1,18 @@
 import { useLocalSearchParams } from 'expo-router';
 
 import { ReportFlow } from '@/components/report/ReportFlow';
-import { SELLERS } from '@/lib/fixtures';
-import { BUYERS } from '@/lib/threads';
 
 export default function ReportUser() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const u = SELLERS[id ?? ''] ?? BUYERS[id ?? ''];
+  // Le nom du user pourra etre recupere via un futur /users/{id}/public
+  // endpoint. Pour l'instant on laisse le header sans subtitle — le user
+  // arrive ici depuis un profil ou un thread, donc il sait qui il signale.
   return (
     <ReportFlow
       title="Signaler l'utilisateur"
-      subtitle={u?.name}
+      subtitle={undefined}
+      targetType="USER"
+      targetId={id}
       reasons={[
         'Harcèlement / menaces',
         'Tentative d\'arnaque',

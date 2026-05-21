@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,7 +8,12 @@ import Svg, { Circle, Line, Path, Polygon } from 'react-native-svg';
 import { useColors, radius as R, t } from '@/theme';
 import { Icon } from '@/components';
 import { useFloatingTabBarHeight } from '@/hooks/useFloatingTabBarHeight';
-import { LISTINGS, SELLERS } from '@/lib/fixtures';
+import {
+  listingsApi,
+  formatListingPrice,
+  listingMainPhoto,
+  type Listing,
+} from '@/lib/api';
 
 // Phase 8 / Screen 54 — Search results.
 export default function SearchResults() {
@@ -17,19 +22,35 @@ export default function SearchResults() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useFloatingTabBarHeight();
   const { q } = useLocalSearchParams<{ q?: string }>();
-  const query = q || 'vélo';
+  const query = q || '';
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [results, setResults] = useState<Listing[]>([]);
+
+  const fetchResults = useCallback(async () => {
+    try {
+      const res = await listingsApi.list({ q: query || undefined, size: 30 });
+      setResults(res.content);
+    } catch (e) {
+      console.warn('listings load failed', e);
+      setResults([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [query]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchResults();
+  }, [fetchResults]);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 700);
-  }, []);
+    fetchResults();
+  }, [fetchResults]);
 
-  // For the demo, return all listings filtered by a substring match in title or category.
-  const results = LISTINGS.filter((l) => {
-    const haystack = `${l.title} ${l.category}`.toLowerCase();
-    return haystack.includes(query.toLowerCase());
-  });
-  const visible = results.length > 0 ? results : LISTINGS.slice(0, 3);
+  const visible = results;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
@@ -211,11 +232,31 @@ export default function SearchResults() {
           </Pressable>
         </View>
 
+        {/* Loading / empty state */}
+        {loading && visible.length === 0 && (
+          <View style={{ paddingVertical: 60, alignItems: 'center', gap: 12 }}>
+            <ActivityIndicator color={C.primary} size="large" />
+            <Text style={[t('bodySm'), { color: C.n500 }]}>Chargement des annonces…</Text>
+          </View>
+        )}
+        {!loading && visible.length === 0 && (
+          <View style={{ paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center', gap: 8 }}>
+            <Text style={[t('body'), { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' }]}>
+              Aucun résultat
+            </Text>
+            <Text style={[t('bodySm'), { color: C.n500, textAlign: 'center' }]}>
+              Aucune annonce ne correspond à « {query} ». Essaie un autre mot-clé.
+            </Text>
+          </View>
+        )}
+
         {/* Result rows */}
         <View style={{ paddingHorizontal: 16 }}>
           {visible.map((l, i) => {
-            const seller = SELLERS[l.sellerId];
             const isHot = i === 0;
+            const photo = listingMainPhoto(l);
+            const sellerName = l.owner?.displayName ?? 'Voisin·e';
+            const verified = (l.owner?.rating ?? 0) >= 4.5;
             return (
               <Pressable
                 key={l.id}
@@ -239,7 +280,7 @@ export default function SearchResults() {
                   }}
                 >
                   <Image
-                    source={{ uri: l.photo }}
+                    source={{ uri: photo }}
                     style={{ width: 96, height: 96 }}
                     contentFit="cover"
                   />
@@ -302,10 +343,11 @@ export default function SearchResults() {
                         { color: C.primary, fontFamily: 'InstrumentSans-SemiBold' },
                       ]}
                     >
-                      {l.distanceLabel}
+                      {l.neighborhood ?? 'Lille'}
                     </Text>
-                    <Text style={[t('caption'), { color: C.n500 }]}>· {l.condition}</Text>
-                    <Text style={[t('caption'), { color: C.n500 }]}>· 2d</Text>
+                    {l.condition ? (
+                      <Text style={[t('caption'), { color: C.n500 }]}>· {l.condition}</Text>
+                    ) : null}
                   </View>
                   <View style={{ flex: 1 }} />
                   <View
@@ -336,9 +378,9 @@ export default function SearchResults() {
                           },
                         ]}
                       >
-                        {seller.name}
+                        {sellerName}
                       </Text>
-                      {seller.verified && (
+                      {verified && (
                         <View
                           style={{
                             width: 12,
@@ -360,7 +402,7 @@ export default function SearchResults() {
                         color: C.ink,
                       }}
                     >
-                      {l.priceLabel}
+                      {formatListingPrice(l)}
                     </Text>
                   </View>
                 </View>

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -7,6 +8,20 @@ import { Icon, MSButton } from '@/components';
 import { StepHeader } from '@/components/sell/StepHeader';
 import { useSellDraft } from '@/lib/sellDraft';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  listingsApi,
+  meApi,
+  ApiError,
+  type ListingType,
+  type CreateListingRequest,
+} from '@/lib/api';
+
+// Mapping fixture <-> backend
+const TYPE_MAP: Record<'sale' | 'rental' | 'service', ListingType> = {
+  sale: 'VENTE',
+  rental: 'LOCATION',
+  service: 'SERVICE',
+};
 
 // Phase 5 / Step 6 — Review + publish.
 export default function SellReview() {
@@ -15,12 +30,78 @@ export default function SellReview() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const draft = useSellDraft();
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   const publish = async () => {
-    // TODO: replace with backend mutation. For now, clear any saved draft
-    // (so the map's resume pill goes away) and dismiss the sell modal.
-    await draft.clearSaved();
-    router.dismissTo('/(tabs)/map');
+    if (publishing) return;
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      // 1. Recupere mes coords + quartier pour geolocaliser l'annonce
+      const me = await meApi.get().catch(() => null);
+
+      // 2. Upload chaque photo (locale OU Unsplash demo) -> URL backend.
+      //    Si une upload echoue, on la skip mais on continue les autres.
+      const photoUrls: string[] = [];
+      for (const uri of draft.photos) {
+        try {
+          const url = await listingsApi.uploadPhoto(uri);
+          photoUrls.push(url);
+        } catch (e) {
+          console.warn('photo upload failed', uri, e);
+        }
+      }
+
+      // 3. Construit le payload selon le type
+      const req: CreateListingRequest = {
+        listingType: TYPE_MAP[draft.listingType],
+        title: draft.title.trim() || 'Annonce sans titre',
+        description: draft.description?.trim() || undefined,
+        condition: draft.condition || undefined,
+        categoryId: draft.categoryId ?? undefined,
+        categoryLabel: draft.category || undefined,
+        lat: me?.lat ?? undefined,
+        lng: me?.lng ?? undefined,
+        neighborhood: me?.neighborhood ?? me?.city ?? undefined,
+        photos: photoUrls,
+      };
+
+      // Champs selon le type
+      if (draft.listingType === 'sale' && draft.price != null) {
+        req.priceCents = Math.round(draft.price * 100);
+      }
+      if (draft.listingType === 'rental') {
+        if (draft.rentalPricePerDay != null) req.pricePerDayCents = Math.round(draft.rentalPricePerDay * 100);
+        if (draft.rentalPricePerWeek != null) req.pricePerWeekCents = Math.round(draft.rentalPricePerWeek * 100);
+        if (draft.rentalDeposit != null) req.depositCents = Math.round(draft.rentalDeposit * 100);
+      }
+      if (draft.listingType === 'service') {
+        if (draft.serviceRate != null) {
+          if (draft.serviceMode === 'hourly') req.hourlyRateCents = Math.round(draft.serviceRate * 100);
+          else if (draft.serviceMode === 'flat') req.flatRateCents = Math.round(draft.serviceRate * 100);
+        }
+        if (draft.serviceRadiusKm != null) req.serviceRadiusKm = draft.serviceRadiusKm;
+      }
+
+      const created = await listingsApi.create(req);
+      // eslint-disable-next-line no-console
+      console.log('[sell] listing cree id=', created.id);
+
+      // 3. Cleanup + retour map (qui va re-fetch via useEffect sur focus)
+      await draft.clearSaved();
+      draft.reset();
+      router.dismissTo('/(tabs)/map');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setPublishError(err.message || 'Publication impossible.');
+      } else {
+        setPublishError('Impossible de contacter le serveur.');
+      }
+      console.warn('publish failed', err);
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const cover = draft.photos[0];
@@ -196,8 +277,18 @@ export default function SellReview() {
           borderTopColor: C.divider,
         }}
       >
-        <MSButton size="lg" fullWidth onPress={publish}>
-          Publier dans ton quartier
+        {publishError ? (
+          <Text style={[t('bodySm'), { color: C.danger, marginBottom: 8, textAlign: 'center' }]}>
+            {publishError}
+          </Text>
+        ) : null}
+        <MSButton
+          size="lg"
+          fullWidth
+          onPress={publish}
+          state={publishing ? 'disabled' : 'default'}
+        >
+          {publishing ? 'Publication…' : 'Publier dans ton quartier'}
         </MSButton>
         <Pressable
           onPress={() => router.dismissAll?.()}

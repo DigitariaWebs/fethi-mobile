@@ -1,8 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   Pressable,
   ScrollView,
+  Share,
   Text,
   View,
 } from 'react-native';
@@ -21,7 +23,17 @@ import Svg, { Path, Rect, Circle } from 'react-native-svg';
 
 import { useColors, useIsDark, radius as R, shadow as Sh, t } from '@/theme';
 import { Icon, MSAvatar, MSButton, MSGlass } from '@/components';
-import { LISTINGS, SELLERS, getListing } from '@/lib/fixtures';
+import { FavoriteButton } from '@/components/listing/FavoriteButton';
+import { MakeOfferSheet } from '@/components/listing/MakeOfferSheet';
+import {
+  listingsApi,
+  threadsApi,
+  formatListingPrice,
+  listingMainPhoto,
+  ApiError,
+  type Listing as ApiListing,
+} from '@/lib/api';
+import { useOrders } from '@/lib/orders';
 
 const HERO_HEIGHT = 420;
 
@@ -36,23 +48,140 @@ export default function ListingDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
 
-  const listing = useMemo(() => getListing(id) ?? LISTINGS[3], [id]);
-  const seller = SELLERS[listing.sellerId];
   const screenW = Dimensions.get('window').width;
 
-  // 5 photos for the gallery — the listing's main photo plus 4 nearby thumbs as
-  // stand-ins (until each listing has its own multi-photo set).
-  const photos = useMemo(
-    () => [
-      listing.photo,
-      ...LISTINGS.filter((l) => l.id !== listing.id)
-        .slice(0, 4)
-        .map((l) => l.photo),
-    ],
-    [listing.id, listing.photo],
-  );
+  // -------------------------------------------------------------------
+  // Chargement depuis le backend
+  // -------------------------------------------------------------------
+  const [apiListing, setApiListing] = useState<ApiListing | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const similar = LISTINGS.filter((l) => l.id !== listing.id).slice(0, 4);
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    listingsApi
+      .get(id)
+      .then((l) => {
+        if (alive) setApiListing(l);
+      })
+      .catch((e) => console.warn('listing detail load failed', e))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  // Mapping API -> forme attendue par le rendu (compat fixture)
+  const listing = useMemo(() => {
+    if (!apiListing) {
+      // Placeholder pendant le chargement (evite des crash null-pointer)
+      return {
+        id: id ?? '',
+        title: '',
+        description: '',
+        photo: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&q=80',
+        priceLabel: '',
+        distanceLabel: '',
+        distanceMeters: 0,
+        condition: '',
+        category: '',
+        postedAt: new Date().toISOString(),
+        sellerId: '',
+      };
+    }
+    // distanceMeters vient du backend quand on a appele /listings avec
+    // lat/lng (filtre rayon). Sur le detail direct sans contexte, on
+    // tombe sur null -> on affiche juste le quartier sans la distance.
+    const dm = apiListing.distanceMeters;
+    const distanceLabel =
+      dm != null
+        ? (dm < 1000 ? `à ${dm} m` : `à ${(dm / 1000).toFixed(1)} km`)
+        : (apiListing.neighborhood ?? 'Lille');
+    return {
+      id: apiListing.id,
+      title: apiListing.title,
+      description: apiListing.description ?? '',
+      photo: apiListing.photos[0] ??
+        'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&q=80',
+      priceLabel: formatListingPrice(apiListing),
+      distanceLabel,
+      distanceMeters: dm ?? 0,
+      condition: apiListing.condition ?? '',
+      category: apiListing.categoryLabel ?? '',
+      postedAt: apiListing.createdAt,
+      sellerId: apiListing.ownerId,
+    };
+  }, [apiListing, id]);
+
+  const seller = useMemo(() => ({
+    id: apiListing?.owner?.id ?? '',
+    name: apiListing?.owner?.displayName ?? 'Voisin·e',
+    rating: apiListing?.owner?.rating ?? 4.5,
+    transactions: apiListing?.owner?.reviewsCount ?? 0,
+    verified: (apiListing?.owner?.rating ?? 0) >= 4.5,
+    joined: '',
+  }), [apiListing]);
+
+  // Galerie : on n'affiche que les vraies photos de l'annonce. Si l'annonce
+  // n'en a qu'une (la plupart des cas en seed), la galerie aura un seul item.
+  // C'est correct visuellement (le composant ScrollView horizontal gere ce cas).
+  const photos = useMemo(() => apiListing?.photos ?? [], [apiListing]);
+
+  // Annonces similaires : on appelle /listings filtre par type (et categorie
+  // si dispo), on garde 6 resultats max, on exclut l'annonce courante.
+  const [similar, setSimilar] = useState<ApiListing[]>([]);
+  useEffect(() => {
+    if (!apiListing) return;
+    let alive = true;
+    listingsApi
+      .list({
+        listingType: apiListing.listingType,
+        categoryId: apiListing.categoryId ?? undefined,
+        size: 8,
+        // Si l'annonce a une position, on cherche autour (5 km) pour rester local
+        lat: apiListing.lat ?? undefined,
+        lng: apiListing.lng ?? undefined,
+        radiusMeters: apiListing.lat != null && apiListing.lng != null ? 5000 : undefined,
+      })
+      .then((res) => {
+        if (alive) {
+          setSimilar(res.content.filter((l) => l.id !== apiListing.id).slice(0, 6));
+        }
+      })
+      .catch((e) => console.warn('similar load failed', e));
+    return () => {
+      alive = false;
+    };
+  }, [apiListing]);
+
+  // Action "Acheter"
+  const buyListing = useOrders((s) => s.buyListing);
+  const [buying, setBuying] = useState(false);
+
+  // Sheet "Faire une offre" — uniquement pour les ventes avec prix defini
+  const [offerOpen, setOfferOpen] = useState(false);
+  const canMakeOffer =
+    apiListing?.listingType === 'VENTE' &&
+    apiListing.priceCents != null &&
+    apiListing.priceCents > 0;
+
+  const handleBuy = async () => {
+    if (!apiListing || buying) return;
+    setBuying(true);
+    try {
+      const order = await buyListing(apiListing.id);
+      router.push(`/orders/${order.id}` as any);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        // CANT_BUY_OWN, LISTING_NOT_AVAILABLE, etc.
+        console.warn('buy failed', err.code, err.message);
+      } else {
+        console.warn('buy failed', err);
+      }
+    } finally {
+      setBuying(false);
+    }
+  };
 
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((e) => {
@@ -93,6 +222,15 @@ export default function ListingDetail() {
   const description = listing.description.length > 280
     ? listing.description.slice(0, 280) + '…'
     : listing.description;
+
+  // Loading state — affiche un spinner plein ecran tant que /listings/{id} n'a pas repondu
+  if (loading && !apiListing) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={C.primary} size="large" />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
@@ -370,6 +508,61 @@ export default function ListingDetail() {
             <Meta label="Publiée il y a" value={daysAgo(listing.postedAt) + ' jours'} />
           </View>
 
+          {/* Bloc specifique au type d'annonce — LOCATION / SERVICE */}
+          {apiListing != null && apiListing.listingType !== 'VENTE' ? (
+            <View
+              style={{
+                backgroundColor: C.surface,
+                padding: 16,
+                borderRadius: R.lg,
+                borderWidth: 1,
+                borderColor: C.divider,
+                marginBottom: 24,
+                rowGap: 10,
+              }}
+            >
+              <Text
+                style={[
+                  t('caption'),
+                  {
+                    color: C.n500,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.6,
+                    marginBottom: 6,
+                  },
+                ]}
+              >
+                {apiListing.listingType === 'LOCATION' ? 'Conditions de location' : 'Conditions du service'}
+              </Text>
+
+              {apiListing.listingType === 'LOCATION' ? (
+                <View style={{ rowGap: 8 }}>
+                  {apiListing.pricePerDayCents != null && (
+                    <Row2 label="Tarif / jour" value={`${(apiListing.pricePerDayCents / 100).toFixed(2)} €`} />
+                  )}
+                  {apiListing.pricePerWeekCents != null && (
+                    <Row2 label="Tarif / semaine" value={`${(apiListing.pricePerWeekCents / 100).toFixed(2)} €`} />
+                  )}
+                  {apiListing.depositCents != null && (
+                    <Row2 label="Caution" value={`${(apiListing.depositCents / 100).toFixed(2)} €`} />
+                  )}
+                </View>
+              ) : (
+                <View style={{ rowGap: 8 }}>
+                  {apiListing.hourlyRateCents != null && (
+                    <Row2 label="Taux horaire" value={`${(apiListing.hourlyRateCents / 100).toFixed(2)} € / h`} />
+                  )}
+                  {apiListing.flatRateCents != null && (
+                    <Row2 label="Forfait" value={`${(apiListing.flatRateCents / 100).toFixed(2)} €`} />
+                  )}
+                  {apiListing.serviceRadiusKm != null && (
+                    <Row2 label="Rayon d'intervention" value={`${apiListing.serviceRadiusKm} km`} />
+                  )}
+                </View>
+              )}
+            </View>
+          ) : null}
+
           {/* Similar nearby */}
           <View
             style={{
@@ -396,48 +589,63 @@ export default function ListingDetail() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ gap: 10 }}
           >
-            {similar.map((s) => (
-              <Pressable
-                key={s.id}
-                onPress={() => router.push(`/listing/${s.id}` as any)}
-                style={{
-                  width: 140,
-                  backgroundColor: C.surface,
-                  borderRadius: R.lg,
-                  borderWidth: 1,
-                  borderColor: C.divider,
-                  overflow: 'hidden',
-                }}
-              >
-                <Image
-                  source={{ uri: s.photo }}
-                  style={{ width: 140, height: 100 }}
-                  contentFit="cover"
-                />
-                <View style={{ padding: 10 }}>
-                  <Text style={[t('caption'), { color: C.n500, marginBottom: 2 }]}>
-                    {s.distanceLabel}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      t('bodySm'),
-                      { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' },
-                    ]}
+            {similar.length === 0 ? (
+              <Text style={[t('caption'), { color: C.n500, paddingVertical: 18 }]}>
+                Pas d'autres annonces similaires pour le moment.
+              </Text>
+            ) : (
+              similar.map((s) => {
+                const photo = listingMainPhoto(s);
+                const distanceLbl =
+                  s.distanceMeters != null
+                    ? s.distanceMeters < 1000
+                      ? `${s.distanceMeters} m`
+                      : `${(s.distanceMeters / 1000).toFixed(1).replace('.', ',')} km`
+                    : (s.neighborhood ?? 'Lille');
+                return (
+                  <Pressable
+                    key={s.id}
+                    onPress={() => router.push(`/listing/${s.id}` as any)}
+                    style={{
+                      width: 140,
+                      backgroundColor: C.surface,
+                      borderRadius: R.lg,
+                      borderWidth: 1,
+                      borderColor: C.divider,
+                      overflow: 'hidden',
+                    }}
                   >
-                    {s.title}
-                  </Text>
-                  <Text
-                    style={[
-                      t('body'),
-                      { fontFamily: 'InstrumentSans-SemiBold', color: C.ink, marginTop: 2 },
-                    ]}
-                  >
-                    {s.priceLabel}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
+                    <Image
+                      source={{ uri: photo }}
+                      style={{ width: 140, height: 100 }}
+                      contentFit="cover"
+                    />
+                    <View style={{ padding: 10 }}>
+                      <Text style={[t('caption'), { color: C.n500, marginBottom: 2 }]}>
+                        {distanceLbl}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          t('bodySm'),
+                          { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' },
+                        ]}
+                      >
+                        {s.title}
+                      </Text>
+                      <Text
+                        style={[
+                          t('body'),
+                          { fontFamily: 'InstrumentSans-SemiBold', color: C.ink, marginTop: 2 },
+                        ]}
+                      >
+                        {formatListingPrice(s)}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })
+            )}
           </ScrollView>
         </View>
       </Animated.ScrollView>
@@ -480,6 +688,27 @@ export default function ListingDetail() {
             }}
           >
             <Pressable
+              onPress={async () => {
+                if (!apiListing) return;
+                // Deep link mystreet:// pour les users qui ont deja l'app installee,
+                // et URL web https://mystreet.fr/l/<id> en fallback pour partage hors-app.
+                const message = [
+                  apiListing.title,
+                  apiListing.priceCents != null
+                    ? `${(apiListing.priceCents / 100).toFixed(0)} €`
+                    : null,
+                  `https://mystreet.fr/l/${apiListing.id}`,
+                ].filter(Boolean).join('\n');
+                try {
+                  await Share.share({
+                    message,
+                    url: `mystreet://listing/${apiListing.id}`, // ios prefere url
+                    title: apiListing.title,
+                  });
+                } catch (err) {
+                  console.warn('share failed', err);
+                }
+              }}
               style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
             >
               <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -504,11 +733,7 @@ export default function ListingDetail() {
               justifyContent: 'center',
             }}
           >
-            <Pressable
-              style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Icon.Heart size={18} color={C.ink} />
-            </Pressable>
+            <FavoriteButton listingId={listing.id} variant="overlay" size={20} />
           </MSGlass>
         </View>
       </View>
@@ -572,7 +797,7 @@ export default function ListingDetail() {
               {listing.title}
             </Text>
           </View>
-          <Pressable
+          <View
             style={{
               width: 36,
               height: 36,
@@ -584,8 +809,8 @@ export default function ListingDetail() {
               justifyContent: 'center',
             }}
           >
-            <Icon.Heart size={16} color={C.ink} />
-          </Pressable>
+            <FavoriteButton listingId={listing.id} variant="inline" size={16} />
+          </View>
         </View>
       </Animated.View>
 
@@ -607,7 +832,7 @@ export default function ListingDetail() {
           gap: 10,
         }}
       >
-        <Pressable
+        <View
           style={[
             Sh.subtle,
             {
@@ -622,39 +847,70 @@ export default function ListingDetail() {
             },
           ]}
         >
-          <Icon.Heart size={20} color={C.ink} />
-        </Pressable>
+          <FavoriteButton listingId={listing.id} variant="inline" size={20} />
+        </View>
         <Pressable
-          onPress={() => router.push(`/messages/${seller.id}` as any)}
+          onPress={async () => {
+            if (!apiListing) return;
+            try {
+              const thread = await threadsApi.open(apiListing.id);
+              router.push(`/(tabs)/messages/${thread.id}` as any);
+            } catch (err) {
+              if (err instanceof ApiError && err.code === 'CANT_MESSAGE_SELF') {
+                // Tentative de se message a soi-meme : on ignore
+                return;
+              }
+              console.warn('open thread failed', err);
+            }
+          }}
           style={[
             Sh.subtle,
             {
-              flex: 1,
-              height: 48,
-              borderRadius: 24,
+              width: 48, height: 48, borderRadius: 24,
               backgroundColor: C.surface,
-              borderWidth: 1,
-              borderColor: C.n200,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
+              borderWidth: 1, borderColor: C.n200,
+              alignItems: 'center', justifyContent: 'center',
             },
           ]}
         >
           <Icon.Mail size={16} color={C.ink} />
-          <Text
-            style={{ fontFamily: 'InstrumentSans-SemiBold', fontSize: 15, color: C.ink }}
-          >
-            Message
-          </Text>
         </Pressable>
+        {canMakeOffer ? (
+          <Pressable
+            onPress={() => setOfferOpen(true)}
+            style={[
+              Sh.subtle,
+              {
+                flex: 1, height: 48, borderRadius: 24,
+                backgroundColor: C.surface,
+                borderWidth: 1.5, borderColor: C.ink,
+                flexDirection: 'row',
+                alignItems: 'center', justifyContent: 'center', gap: 6,
+              },
+            ]}
+          >
+            <Text style={{ fontFamily: 'InstrumentSans-SemiBold', fontSize: 14, color: C.ink }}>
+              Faire une offre
+            </Text>
+          </Pressable>
+        ) : null}
         <View style={{ flex: 1.2 }}>
-          <MSButton size="lg" fullWidth>
-            Faire une offre
+          <MSButton size="lg" fullWidth onPress={handleBuy} state={buying ? 'disabled' : 'default'}>
+            {buying ? 'Achat…' : 'Acheter'}
           </MSButton>
         </View>
       </View>
+
+      {/* Sheet "Faire une offre" */}
+      {apiListing && canMakeOffer ? (
+        <MakeOfferSheet
+          visible={offerOpen}
+          onClose={() => setOfferOpen(false)}
+          listingId={apiListing.id}
+          listingTitle={apiListing.title}
+          askingPriceCents={apiListing.priceCents!}
+        />
+      ) : null}
     </View>
   );
 }
@@ -696,6 +952,19 @@ function Meta({ label, value }: { label: string; value: string }) {
   return (
     <View style={{ width: '50%' }}>
       <Text style={[t('caption'), { color: C.n500 }]}>{label}</Text>
+      <Text style={[t('body'), { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' }]}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+/** Ligne "label ... valeur" pour le bloc location/service. */
+function Row2({ label, value }: { label: string; value: string }) {
+  const C = useColors();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <Text style={[t('body'), { color: C.n600 }]}>{label}</Text>
       <Text style={[t('body'), { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' }]}>
         {value}
       </Text>

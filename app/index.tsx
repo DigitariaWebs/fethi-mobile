@@ -8,17 +8,25 @@ import { useColors } from '@/theme';
 import { useSession } from '@/lib/session';
 import { useSellDraft } from '@/lib/sellDraft';
 import { useSubscription } from '@/lib/subscription';
+import { meApi, tokenStore, ApiError } from '@/lib/api';
 import { MSLogo } from '@/components/branding';
 
 
-// Phase 1 / Screen 1 — Splash.
-// Terracotta full-bleed, brand mark slides up from below to center.
-// After ~1.4s auto-advances to the next destination based on session state.
+// Splash — point d'entree de l'app.
+//
+// Decision tree au boot :
+//   1. Hydrate les stores AsyncStorage (session, sellDraft, sub)
+//   2. Si pas de token  -> /auth (login)
+//   3. Si token + /me OK + displayName renseigne -> /(tabs)/map (deja onboarded)
+//   4. Si token + /me OK + displayName vide      -> /onboarding/profile (continue onboarding)
+//   5. Si token + /me 401                        -> /auth (session expiree)
+//
+// On laisse un delai mini de 1.4s pour que le logo soit visible (sinon
+// l'animation parait coupee sur les vieux iPhones qui demarrent vite).
 export default function Splash() {
   const C = useColors();
   const router = useRouter();
   const hydrated = useSession((s) => s.hydrated);
-  const onboarded = useSession((s) => s.onboarded);
   const hydrate = useSession((s) => s.hydrate);
   const hydrateDraft = useSellDraft((s) => s.hydrate);
   const hydrateSub = useSubscription((s) => s.hydrate);
@@ -31,11 +39,50 @@ export default function Splash() {
 
   useEffect(() => {
     if (!hydrated) return;
-    const id = setTimeout(() => {
-      router.replace(onboarded ? '/(tabs)/map' : '/welcome');
-    }, 1400);
-    return () => clearTimeout(id);
-  }, [hydrated, onboarded, router]);
+
+    let cancelled = false;
+    const start = Date.now();
+    const MIN_SPLASH_MS = 1400;
+
+    (async () => {
+      // 1. Token present ?
+      const token = await tokenStore.getAccess();
+      if (cancelled) return;
+
+      let destination = '/auth';
+
+      if (token) {
+        // 2. Token present -> tente /me. Si OK, route selon le profil.
+        try {
+          const me = await meApi.get();
+          if (cancelled) return;
+          // displayName renseigne = onboarding au moins partiellement fait
+          if (me.displayName && me.displayName.trim().length > 0) {
+            destination = '/(tabs)/map';
+          } else {
+            destination = '/onboarding/profile';
+          }
+        } catch (err) {
+          // 401 = session expiree / compte supprime. Clear et /auth.
+          if (err instanceof ApiError && err.status === 401) {
+            await tokenStore.clear();
+          }
+          destination = '/auth';
+        }
+      }
+
+      // Garde un splash visible 1.4s minimum.
+      const elapsed = Date.now() - start;
+      const remaining = Math.max(0, MIN_SPLASH_MS - elapsed);
+      setTimeout(() => {
+        if (!cancelled) router.replace(destination as any);
+      }, remaining);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, router]);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.primary }}>

@@ -9,7 +9,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Polyline, Line } from 'react-native-svg';
 
@@ -17,21 +19,14 @@ import { useColors, radius as R, t } from '@/theme';
 import { Icon } from '@/components';
 import { CategoryGlyph } from '@/components/sell/CategoryGlyph';
 import { useFloatingTabBarHeight } from '@/hooks/useFloatingTabBarHeight';
+import { useEffectiveCoords, useLocationLabel } from '@/lib/locationStore';
+import { listingsApi, formatListingPrice, listingMainPhoto } from '@/lib/api';
 import type { CategoryGlyph as Glyph } from '@/lib/categories';
 
 const RECENTS = [
   { q: 'vélo de ville', tag: 'Vélos' },
   { q: 'kallax', tag: 'Meubles' },
   { q: 'Le Creuset', tag: 'Cuisine' },
-];
-
-const TRENDING = [
-  { q: 'plante', n: 47 },
-  { q: 'poussette', n: 31 },
-  { q: 'vinyles', n: 28 },
-  { q: 'machine à café', n: 24 },
-  { q: 'guitare', n: 19 },
-  { q: 'kettlebell', n: 17 },
 ];
 
 // Category tiles — emojis render unreliably with our custom font on the
@@ -56,6 +51,27 @@ export default function SearchEntry() {
   const tabBarHeight = useFloatingTabBarHeight();
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const coords = useEffectiveCoords();
+  const locationLabel = useLocationLabel();
+
+  // Top "trending" : 6 annonces les plus favorisees dans un rayon de 5 km
+  // autour de l'user. On les affiche en horizontal scroll de cards.
+  const trending = useQuery({
+    queryKey: ['trending', coords.lat, coords.lng],
+    queryFn: () =>
+      listingsApi.list({
+        lat: coords.lat,
+        lng: coords.lng,
+        radiusMeters: 5000,
+        size: 20,
+      }),
+    staleTime: 60 * 1000,
+  });
+  const trendingItems = (trending.data?.content ?? [])
+    .filter((l) => (l.favoritesCount ?? 0) > 0 || (l.viewCount ?? 0) > 0)
+    .sort((a, b) => (b.favoritesCount ?? 0) - (a.favoritesCount ?? 0)
+                 || (b.viewCount ?? 0) - (a.viewCount ?? 0))
+    .slice(0, 6);
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 700);
@@ -203,56 +219,73 @@ export default function SearchEntry() {
           ))}
         </Section>
 
-        {/* Trending */}
-        <Section
-          title="Populaire à Vieux-Lille"
-          subtitle="Ce que tes voisins ont cherché cette semaine"
-        >
-          <View
-            style={{
-              paddingHorizontal: 20,
-              paddingTop: 4,
-              paddingBottom: 4,
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              gap: 6,
-            }}
+        {/* Trending — horizontal scroll des annonces les plus favorisees pres de l'user */}
+        {trendingItems.length > 0 ? (
+          <Section
+            title={`Populaire à ${locationLabel}`}
+            subtitle="Les annonces les plus sauvegardées autour de toi"
           >
-            {TRENDING.map((tag) => (
-              <Pressable
-                key={tag.q}
-                onPress={() => submit(tag.q)}
-                style={{
-                  paddingLeft: 10,
-                  paddingRight: 12,
-                  paddingVertical: 7,
-                  borderRadius: R.full,
-                  backgroundColor: C.surface,
-                  borderWidth: 1,
-                  borderColor: C.n200,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <Text
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}
+            >
+              {trendingItems.map((l) => (
+                <Pressable
+                  key={l.id}
+                  onPress={() => router.push(`/listing/${l.id}` as any)}
                   style={{
-                    fontFamily: 'InstrumentSans-Bold',
-                    fontSize: 11,
-                    color: C.primary,
+                    width: 140,
+                    backgroundColor: C.surface,
+                    borderRadius: R.lg,
+                    borderWidth: 1, borderColor: C.divider,
+                    overflow: 'hidden',
                   }}
                 >
-                  {tag.n}
-                </Text>
-                <Text
-                  style={[t('bodySm'), { color: C.ink, fontFamily: 'InstrumentSans-Medium' }]}
-                >
-                  {tag.q}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </Section>
+                  <View style={{ width: 140, height: 100, position: 'relative' }}>
+                    <Image
+                      source={{ uri: listingMainPhoto(l) }}
+                      style={{ width: 140, height: 100 }}
+                      contentFit="cover"
+                    />
+                    {(l.favoritesCount ?? 0) > 0 ? (
+                      <View
+                        style={{
+                          position: 'absolute', top: 6, right: 6,
+                          paddingHorizontal: 6, paddingVertical: 2,
+                          borderRadius: 999,
+                          backgroundColor: 'rgba(255,255,255,0.92)',
+                          flexDirection: 'row', alignItems: 'center', gap: 3,
+                        }}
+                      >
+                        <Icon.Heart size={9} color={C.danger} />
+                        <Text style={{ fontFamily: 'InstrumentSans-Bold', fontSize: 10, color: C.ink }}>
+                          {l.favoritesCount}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={{ padding: 8 }}>
+                    <Text
+                      numberOfLines={1}
+                      style={[t('caption'), { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' }]}
+                    >
+                      {l.title}
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: 'InstrumentSans-SemiBold',
+                        fontSize: 12, color: C.ink, marginTop: 2,
+                      }}
+                    >
+                      {formatListingPrice(l)}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Section>
+        ) : null}
 
         {/* Browse */}
         <Section title="Parcourir">

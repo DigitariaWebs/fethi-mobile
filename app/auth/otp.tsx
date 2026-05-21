@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useColors, radius as R, shadow as Sh, t } from '@/theme';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { authApi, ApiError, OtpChannel } from '@/lib/api';
 
 const LEN = 6;
 const RESEND_SECONDS = 30;
@@ -39,19 +40,38 @@ export default function AuthOTP() {
   const submit = async (override?: string) => {
     const c = (override ?? code).replace(/\D/g, '').slice(0, LEN);
     if (c.length !== LEN || submitting) return;
-    setSubmitting(true);
-    setError(null);
-    await new Promise((r) => setTimeout(r, 700));
-    setSubmitting(false);
-
-    // Demo rule: any code ending in 000 fails. Anything else proceeds.
-    if (c.endsWith('000')) {
-      setError('Ce code ne correspond pas. Réessaie ou renvoie-le.');
-      setCode('');
-      inputRef.current?.focus();
+    if (!value || !via) {
+      setError('Session expirée. Recommence depuis l\'écran précédent.');
       return;
     }
-    router.replace('/onboarding/slides');
+    setSubmitting(true);
+    setError(null);
+    try {
+      await authApi.verifyOtp({
+        channel: via === 'phone' ? 'SMS' : 'EMAIL',
+        target: value,
+        code: c,
+        purpose: 'LOGIN',
+      });
+      // Tokens stockés par verifyOtp (AsyncStorage + SecureStore)
+      router.replace('/onboarding/slides');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const friendly =
+          err.code === 'OTP_INVALID' || err.status === 400
+            ? 'Ce code ne correspond pas. Réessaie ou renvoie-le.'
+            : err.code === 'OTP_EXPIRED'
+              ? 'Code expiré. Renvoie-en un nouveau.'
+              : err.message || 'Vérification impossible.';
+        setError(friendly);
+      } else {
+        setError('Impossible de contacter le serveur.');
+      }
+      setCode('');
+      inputRef.current?.focus();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const onChange = (raw: string) => {
@@ -61,12 +81,25 @@ export default function AuthOTP() {
     if (clean.length === LEN) submit(clean);
   };
 
-  const resend = () => {
-    if (secondsLeft > 0) return;
+  const resend = async () => {
+    if (secondsLeft > 0 || !value || !via) return;
     setCode('');
     setError(null);
-    setSecondsLeft(RESEND_SECONDS);
-    inputRef.current?.focus();
+    try {
+      await authApi.requestOtp({
+        channel: via === 'phone' ? 'SMS' : 'EMAIL',
+        target: value,
+        purpose: 'LOGIN',
+      });
+      setSecondsLeft(RESEND_SECONDS);
+      inputRef.current?.focus();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message || 'Renvoi impossible.');
+      } else {
+        setError('Impossible de contacter le serveur.');
+      }
+    }
   };
 
   return (

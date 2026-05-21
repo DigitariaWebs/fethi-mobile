@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Polygon, Circle, Path } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 
 import { useColors, radius as R, shadow as Sh, t } from '@/theme';
 import { Icon, MSAvatar } from '@/components';
@@ -11,14 +12,38 @@ import { TrustBadge } from '@/components/profile/TrustBadge';
 import { ProfileTabs, type ProfileTabId } from '@/components/profile/ProfileTabs';
 import { useFloatingTabBarHeight } from '@/hooks/useFloatingTabBarHeight';
 import { useSession } from '@/lib/session';
-import { LISTINGS } from '@/lib/fixtures';
+import { useMe, ME_QUERY_KEY } from '@/hooks/useMe';
+import { useMyListings } from '@/hooks/useMyListings';
+import {
+  formatListingPrice,
+  listingMainPhoto,
+  type Listing as ApiListing,
+} from '@/lib/api';
 
-// Phase 7 / Screen 49 — Your profile.
-const MY_LISTINGS = [
-  { listing: LISTINGS[0], status: 'live' as const, stats: '127 vues · 2 offres' },
-  { listing: LISTINGS[3], status: 'live' as const, stats: '48 vues · 1 favori' },
-  { listing: LISTINGS[5], status: 'paused' as const, stats: 'En pause depuis 4j' },
+const MONTHS_FR = [
+  'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+  'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
 ];
+function formatJoinedDate(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${MONTHS_FR[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function statusLabel(l: ApiListing): { tag: 'live' | 'paused' | 'sold' | 'draft'; line: string } {
+  // Le backend renvoie ACTIVE / PAUSED / SOLD / DRAFT / ARCHIVED. On compresse
+  // ARCHIVED -> 'sold' pour l'affichage (le user a fini avec l'annonce).
+  if (l.status === 'PAUSED') return { tag: 'paused', line: 'En pause' };
+  if (l.status === 'SOLD' || l.status === 'ARCHIVED') return { tag: 'sold', line: 'Vendu' };
+  if (l.status === 'DRAFT') return { tag: 'draft', line: 'Brouillon' };
+  // ACTIVE — on affiche les stats si on les a.
+  const views = l.viewCount ?? 0;
+  const favs = l.favoritesCount ?? 0;
+  if (views === 0 && favs === 0) return { tag: 'live', line: 'En ligne' };
+  if (favs === 0) return { tag: 'live', line: `${views} vue${views > 1 ? 's' : ''}` };
+  return { tag: 'live', line: `${views} vue${views > 1 ? 's' : ''} · ${favs} favori${favs > 1 ? 's' : ''}` };
+}
 
 export default function ProfileMine() {
   const C = useColors();
@@ -26,14 +51,51 @@ export default function ProfileMine() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useFloatingTabBarHeight();
   const session = useSession();
+  const me = useMe();
+  const myListings = useMyListings();
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<ProfileTabId>('selling');
   const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 700);
-  }, []);
 
-  const counts = { selling: MY_LISTINGS.filter((l) => l.status !== 'paused').length, sold: 8, reviews: 11 };
+  // Pull-to-refresh : invalide /me + mes annonces, le React Query
+  // re-fetche en arriere-plan et la liste se met a jour.
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY }),
+        queryClient.invalidateQueries({ queryKey: ['my-listings'] }),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [queryClient]);
+
+  const allListings = myListings.data?.content ?? [];
+  const liveListings = useMemo(
+    () => allListings.filter((l) => l.status === 'ACTIVE' || l.status === 'DRAFT'),
+    [allListings],
+  );
+  const soldListings = useMemo(
+    () => allListings.filter((l) => l.status === 'SOLD' || l.status === 'ARCHIVED'),
+    [allListings],
+  );
+
+  // Stats : on prefere les compteurs du backend (vrais agregats), avec
+  // fallback sur le compte local depuis les listings charges si le DTO ne
+  // les expose pas encore (ancienne version backend).
+  const counts = {
+    selling: me.data?.listingsCount ?? liveListings.length,
+    sold: me.data?.salesCount ?? soldListings.length,
+    reviews: me.data?.reviewsCount ?? 0,
+  };
+
+  // Identite : on prefere le backend (/me) au store local (qui ne reflete
+  // que les choix faits en onboarding). Fallback sur le store si /me est
+  // toujours en train de charger (ex: avant la fin de l'hydratation).
+  const displayName = me.data?.displayName || session.displayName || 'Toi';
+  const neighborhood = me.data?.neighborhood ?? me.data?.city ?? 'Près de toi';
+  const joinedLabel = me.data?.createdAt ? formatJoinedDate(me.data.createdAt) : '';
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
@@ -157,30 +219,41 @@ export default function ProfileMine() {
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={[t('h2'), { fontSize: 22, color: C.ink }]}>
-                {session.displayName || 'Julie M.'}
+                {displayName}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
                 <Icon.Pin size={11} color={C.n500} />
                 <Text style={[t('caption'), { color: C.n500 }]}>
-                  Vieux-Lille · inscrit(e) en mars 2024
+                  {neighborhood}
+                  {joinedLabel ? ` · inscrit(e) en ${joinedLabel}` : ''}
                 </Text>
               </View>
-              <View
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}
-              >
-                <Star />
-                <Text style={[t('bodySm'), { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' }]}>
-                  4.9
-                </Text>
-                <Text style={[t('caption'), { color: C.n500 }]}>· 11 avis</Text>
-              </View>
+              {me.data?.rating != null && me.data.rating > 0 ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                  <Svg width={13} height={13} viewBox="0 0 24 24">
+                    <Path
+                      d="M12 2 L15 9 L22 9.5 L17 14.5 L18.5 22 L12 18 L5.5 22 L7 14.5 L2 9.5 L9 9 Z"
+                      fill="#C68A2E"
+                    />
+                  </Svg>
+                  <Text style={[t('bodySm'), { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' }]}>
+                    {me.data.rating.toFixed(1)}
+                  </Text>
+                  {(me.data.reviewsCount ?? 0) > 0 ? (
+                    <Text style={[t('caption'), { color: C.n500 }]}>
+                      · {me.data.reviewsCount} avis
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           </View>
 
-          <Text style={[t('bodySm'), { color: C.n700, marginTop: 14, lineHeight: 20 }]}>
-            Architecte la semaine, dénicheuse de meubles vintage le week-end. Je vends surtout
-            des affaires de mon appartement, je déménage dans plus petit.
-          </Text>
+          {me.data?.bio ? (
+            <Text style={[t('bodySm'), { color: C.n700, marginTop: 14, lineHeight: 20 }]}>
+              {me.data.bio}
+            </Text>
+          ) : null}
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 14 }}>
             <TrustBadge icon="check" label="Identité vérifiée" />
@@ -189,7 +262,10 @@ export default function ProfileMine() {
             <TrustBadge icon="address" label="Adresse confirmée" />
           </View>
 
-          {/* Quick stats */}
+          {/* Quick stats — calculees directement depuis les listings du user.
+              Vendus + actifs viennent du backend ; les autres (taux/temps de
+              reponse) sont des fixtures pour le moment, on les cablera quand
+              le backend expose une route /me/stats. */}
           <View
             style={{
               backgroundColor: C.surface,
@@ -202,11 +278,11 @@ export default function ProfileMine() {
               flexDirection: 'row',
             }}
           >
-            <Stat top="8" bottom="Vendus" />
+            <Stat top={String(counts.sold)} bottom="Vendus" />
             <V />
-            <Stat top="24h" bottom="Réponse moy." />
+            <Stat top={String(counts.selling)} bottom="En ligne" />
             <V />
-            <Stat top="100%" bottom="Taux de récupération" />
+            <Stat top={joinedLabel || '—'} bottom="Membre depuis" />
           </View>
 
           <ProfileTabs active={tab} counts={counts} onChange={setTab} />
@@ -223,79 +299,145 @@ export default function ProfileMine() {
               gap: 10,
             }}
           >
-            {MY_LISTINGS.map(({ listing, status, stats }) => (
-              <Pressable
-                key={listing.id}
-                onPress={() => router.push(`/seller/${listing.id}` as any)}
+            {/* Loading squelette : 4 cartes grises pendant le fetch initial. */}
+            {myListings.isLoading && liveListings.length === 0
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <View
+                    key={`sk-${i}`}
+                    style={{
+                      width: '47.5%',
+                      aspectRatio: 0.85,
+                      backgroundColor: C.n50,
+                      borderRadius: R.lg,
+                      borderWidth: 1,
+                      borderColor: C.divider,
+                    }}
+                  />
+                ))
+              : null}
+
+            {!myListings.isLoading && liveListings.length === 0 ? (
+              <View
                 style={{
-                  width: '47.5%',
-                  backgroundColor: C.surface,
-                  borderRadius: R.lg,
-                  borderWidth: 1,
-                  borderColor: C.divider,
-                  overflow: 'hidden',
+                  width: '100%',
+                  paddingVertical: 32,
+                  alignItems: 'center',
+                  gap: 8,
                 }}
               >
-                <View style={{ aspectRatio: 1, position: 'relative' }}>
-                  <Image
-                    source={{ uri: listing.photo }}
-                    style={{ width: '100%', height: '100%', opacity: status === 'paused' ? 0.6 : 1 }}
-                    contentFit="cover"
-                  />
-                  {status === 'paused' && (
-                    <View
+                <Text style={[t('body'), { color: C.n500, textAlign: 'center' }]}>
+                  Aucune annonce active.
+                </Text>
+                <Text style={[t('caption'), { color: C.n400, textAlign: 'center' }]}>
+                  Crée ta première en tapant sur le bouton ci-dessous.
+                </Text>
+              </View>
+            ) : null}
+
+            {liveListings.map((listing) => {
+              const s = statusLabel(listing);
+              return (
+                <Pressable
+                  key={listing.id}
+                  onPress={() => router.push(`/seller/${listing.id}` as any)}
+                  style={{
+                    width: '47.5%',
+                    backgroundColor: C.surface,
+                    borderRadius: R.lg,
+                    borderWidth: 1,
+                    borderColor: C.divider,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <View style={{ aspectRatio: 1, position: 'relative' }}>
+                    <Image
+                      source={{ uri: listingMainPhoto(listing) }}
                       style={{
-                        position: 'absolute',
-                        top: 8,
-                        left: 8,
-                        paddingHorizontal: 8,
-                        paddingVertical: 3,
-                        borderRadius: R.full,
-                        backgroundColor: 'rgba(31,36,33,0.85)',
+                        width: '100%',
+                        height: '100%',
+                        opacity: s.tag === 'paused' ? 0.6 : 1,
                       }}
-                    >
-                      <Text
+                      contentFit="cover"
+                    />
+                    {s.tag === 'paused' && (
+                      <View
                         style={{
-                          color: '#FFF',
-                          fontSize: 10,
-                          fontFamily: 'InstrumentSans-Bold',
-                          letterSpacing: 0.4,
+                          position: 'absolute',
+                          top: 8,
+                          left: 8,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: R.full,
+                          backgroundColor: 'rgba(31,36,33,0.85)',
                         }}
                       >
-EN PAUSE
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <View style={{ padding: 10 }}>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      t('bodySm'),
-                      { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' },
-                    ]}
-                  >
-                    {listing.title}
-                  </Text>
-                  <Text
-                    style={{
-                      fontFamily: 'InstrumentSans-SemiBold',
-                      fontSize: 14,
-                      color: C.ink,
-                      marginTop: 3,
-                    }}
-                  >
-                    {listing.priceLabel}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[t('caption'), { color: C.n500, marginTop: 4, fontSize: 10 }]}
-                  >
-                    {stats}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
+                        <Text
+                          style={{
+                            color: '#FFF',
+                            fontSize: 10,
+                            fontFamily: 'InstrumentSans-Bold',
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          EN PAUSE
+                        </Text>
+                      </View>
+                    )}
+                    {s.tag === 'draft' && (
+                      <View
+                        style={{
+                          position: 'absolute',
+                          top: 8,
+                          left: 8,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: R.full,
+                          backgroundColor: 'rgba(198,138,46,0.92)',
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: '#FFF',
+                            fontSize: 10,
+                            fontFamily: 'InstrumentSans-Bold',
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          BROUILLON
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ padding: 10 }}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        t('bodySm'),
+                        { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' },
+                      ]}
+                    >
+                      {listing.title}
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: 'InstrumentSans-SemiBold',
+                        fontSize: 14,
+                        color: C.ink,
+                        marginTop: 3,
+                      }}
+                    >
+                      {formatListingPrice(listing)}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[t('caption'), { color: C.n500, marginTop: 4, fontSize: 10 }]}
+                    >
+                      {s.line}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
             <Pressable
               onPress={() => router.push('/sell')}
               style={{
@@ -335,28 +477,75 @@ EN PAUSE
           </View>
         )}
         {tab === 'sold' && (
-          <View style={{ paddingHorizontal: 20, paddingTop: 24, alignItems: 'center' }}>
-            <Text style={[t('body'), { color: C.n500 }]}>8 articles vendus — historique des avis bientôt disponible.</Text>
+          <View
+            style={{
+              paddingHorizontal: 20,
+              paddingTop: 16,
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: 10,
+            }}
+          >
+            {soldListings.length === 0 ? (
+              <View style={{ width: '100%', paddingVertical: 32, alignItems: 'center' }}>
+                <Text style={[t('body'), { color: C.n500 }]}>
+                  Aucun article vendu pour l'instant.
+                </Text>
+              </View>
+            ) : (
+              soldListings.map((listing) => (
+                <Pressable
+                  key={listing.id}
+                  onPress={() => router.push(`/listing/${listing.id}` as any)}
+                  style={{
+                    width: '47.5%',
+                    backgroundColor: C.surface,
+                    borderRadius: R.lg,
+                    borderWidth: 1,
+                    borderColor: C.divider,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <View style={{ aspectRatio: 1 }}>
+                    <Image
+                      source={{ uri: listingMainPhoto(listing) }}
+                      style={{ width: '100%', height: '100%', opacity: 0.7 }}
+                      contentFit="cover"
+                    />
+                  </View>
+                  <View style={{ padding: 10 }}>
+                    <Text
+                      numberOfLines={1}
+                      style={[t('bodySm'), { color: C.ink, fontFamily: 'InstrumentSans-SemiBold' }]}
+                    >
+                      {listing.title}
+                    </Text>
+                    <Text
+                      style={{
+                        fontFamily: 'InstrumentSans-SemiBold',
+                        fontSize: 14,
+                        color: C.n500,
+                        marginTop: 3,
+                        textDecorationLine: 'line-through',
+                      }}
+                    >
+                      {formatListingPrice(listing)}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))
+            )}
           </View>
         )}
         {tab === 'reviews' && (
           <View style={{ paddingHorizontal: 20, paddingTop: 24, alignItems: 'center' }}>
-            <Text style={[t('body'), { color: C.n500 }]}>11 avis — voir le profil public pour la liste complète.</Text>
+            <Text style={[t('body'), { color: C.n500, textAlign: 'center' }]}>
+              Le module avis arrive bientôt — il listera ici les retours laissés par les acheteurs.
+            </Text>
           </View>
         )}
       </ScrollView>
     </View>
-  );
-}
-
-function Star() {
-  return (
-    <Svg width={13} height={13} viewBox="0 0 24 24">
-      <Polygon
-        points="12 2 15 9 22 9.5 17 14.5 18.5 22 12 18 5.5 22 7 14.5 2 9.5 9 9"
-        fill="#C68A2E"
-      />
-    </Svg>
   );
 }
 

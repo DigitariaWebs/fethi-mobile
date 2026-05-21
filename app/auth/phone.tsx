@@ -6,6 +6,7 @@ import { useColors, radius as R, shadow as Sh, t } from '@/theme';
 import { Icon } from '@/components';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { FrenchFlag } from '@/components/auth/FrenchFlag';
+import { authApi, ApiError } from '@/lib/api';
 
 // Single-region demo: France only. Extending to a full picker is straightforward
 // (swap the static button for a modal with the standard country list).
@@ -23,6 +24,7 @@ export default function AuthPhone() {
   const [phone, setPhone] = useState('');
   const [focused, setFocused] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [networkError, setNetworkError] = useState<string | null>(null);
 
   const digits = phone.replace(/\D/g, '');
   const valid = digits.length >= 9; // FR mobiles are 9 digits after the leading 0
@@ -30,13 +32,27 @@ export default function AuthPhone() {
   const submit = async () => {
     if (!valid || submitting) return;
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 600));
-    setSubmitting(false);
+    setNetworkError(null);
     const e164 = `${COUNTRY.dial}${digits.replace(/^0/, '')}`;
-    router.push({
-      pathname: '/auth/otp',
-      params: { via: 'phone', value: e164 },
-    });
+    try {
+      await authApi.requestOtp({
+        channel: 'SMS',
+        target: e164,
+        purpose: 'LOGIN',
+      });
+      router.push({
+        pathname: '/auth/otp',
+        params: { via: 'phone', value: e164 },
+      });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setNetworkError(err.message || 'Envoi du SMS impossible.');
+      } else {
+        setNetworkError('Impossible de contacter le serveur.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -113,6 +129,12 @@ export default function AuthPhone() {
           />
         </View>
       </View>
+
+      {networkError && (
+        <Text style={[t('bodySm'), { color: C.danger, marginTop: 8, marginLeft: 4 }]}>
+          {networkError}
+        </Text>
+      )}
 
       <View
         style={{

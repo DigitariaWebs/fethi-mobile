@@ -4,6 +4,10 @@ module.exports = {
     './app/**/*.{js,jsx,ts,tsx}',
     './src/**/*.{js,jsx,ts,tsx}',
   ],
+  // 'class' au lieu de 'media' (defaut) pour autoriser le toggle manuel via
+  // useThemeStore. Sinon NativeWind throw sur web : "Cannot manually set
+  // color scheme, as dark mode is type 'media'".
+  darkMode: 'class',
   presets: [require('nativewind/preset')],
   theme: {
     extend: {

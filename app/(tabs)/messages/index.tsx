@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,12 +8,59 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { useColors, radius as R, t } from '@/theme';
 import { Icon, MSAvatar, MSButton, MSPill } from '@/components';
 import { useFloatingTabBarHeight } from '@/hooks/useFloatingTabBarHeight';
-import { THREADS, type Thread } from '@/lib/threads';
+import { threadsApi, listingMainPhoto, type ApiThread } from '@/lib/api';
 
 // Phase 4 / Screens 36 + 39 — inbox.
-// Renders the thread list. When the list is empty (toggle "Selling" tab to
-// see the empty fallback) the empty-state composition replaces the rows.
 type Tab = 'all' | 'buying' | 'selling';
+
+// Forme attendue par le rendu (compat fixture). On la projette depuis l'API.
+type ThreadVm = {
+  id: string;
+  iAmSeller: boolean;
+  seller: { name: string; avatarUrl: string | null };
+  listing: { title: string; thumb: string };
+  lastMessage: string;
+  lastFromMe: boolean;
+  time: string;
+  unread: number;
+  online: boolean;
+  offerStatus: null;
+  offerAmount?: undefined;
+};
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  const diffMin = (Date.now() - date.getTime()) / 60_000;
+  if (diffMin < 1) return "à l'instant";
+  if (diffMin < 60) return `${Math.floor(diffMin)} min`;
+  const diffH = diffMin / 60;
+  if (diffH < 24) return `${Math.floor(diffH)} h`;
+  const diffD = diffH / 24;
+  if (diffD < 7) return `${Math.floor(diffD)} j`;
+  return date.toLocaleDateString('fr-FR');
+}
+
+function toVm(t: ApiThread): ThreadVm {
+  return {
+    id: t.id,
+    iAmSeller: t.iAmSeller,
+    seller: {
+      name: t.other?.displayName ?? 'Voisin·e',
+      avatarUrl: t.other?.avatarUrl ?? null,
+    },
+    listing: {
+      title: t.listing?.title ?? 'Annonce supprimée',
+      thumb: t.listing ? listingMainPhoto(t.listing) : '',
+    },
+    lastMessage: t.lastMessage ?? '',
+    lastFromMe: t.lastFromMe,
+    time: relativeTime(t.lastMessageAt ?? t.createdAt),
+    unread: t.unreadCount,
+    online: false,
+    offerStatus: null,
+  };
+}
 
 export default function Inbox() {
   const C = useColors();
@@ -24,33 +71,46 @@ export default function Inbox() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(() => {
-    // Mock refresh — real wiring would re-fetch the inbox.
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 700);
+  const [loading, setLoading] = useState(true);
+  const [threads, setThreads] = useState<ApiThread[]>([]);
+
+  const fetchThreads = useCallback(async () => {
+    try {
+      const res = await threadsApi.list(0, 50);
+      setThreads(res.content);
+    } catch (e) {
+      console.warn('threads load failed', e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
-  // Counts come straight from the source so they stay accurate as threads
-  // are added / removed.
-  const counts = useMemo(
-    () => ({
-      all: THREADS.length,
-      buying: THREADS.filter((th) => !th.iAmSeller).length,
-      selling: THREADS.filter((th) => th.iAmSeller).length,
-    }),
-    [],
-  );
+  useEffect(() => {
+    setLoading(true);
+    fetchThreads();
+  }, [fetchThreads]);
 
-  // Buying = threads where I'm the buyer. Selling = threads where I own
-  // the listing. Search is then layered on top — matches against the
-  // participant name, listing title, and last-message text.
-  const visible: Thread[] = useMemo(() => {
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchThreads();
+  }, [fetchThreads]);
+
+  const allVm = useMemo(() => threads.map(toVm), [threads]);
+
+  const counts = useMemo(() => ({
+    all: allVm.length,
+    buying: allVm.filter((th) => !th.iAmSeller).length,
+    selling: allVm.filter((th) => th.iAmSeller).length,
+  }), [allVm]);
+
+  const visible: ThreadVm[] = useMemo(() => {
     const byTab =
       tab === 'selling'
-        ? THREADS.filter((th) => th.iAmSeller)
+        ? allVm.filter((th) => th.iAmSeller)
         : tab === 'buying'
-          ? THREADS.filter((th) => !th.iAmSeller)
-          : THREADS;
+          ? allVm.filter((th) => !th.iAmSeller)
+          : allVm;
     const q = query.trim().toLowerCase();
     if (!q) return byTab;
     return byTab.filter((th) =>
@@ -59,7 +119,7 @@ export default function Inbox() {
         .toLowerCase()
         .includes(q),
     );
-  }, [tab, query]);
+  }, [tab, query, allVm]);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
@@ -158,7 +218,11 @@ export default function Inbox() {
         </MSPill>
       </View>
 
-      {visible.length === 0 ? (
+      {loading && threads.length === 0 ? (
+        <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+          <ActivityIndicator color={C.primary} size="large" />
+        </View>
+      ) : visible.length === 0 ? (
         query.trim() ? (
           <View style={{ paddingVertical: 48, alignItems: 'center' }}>
             <Text style={[t('body'), { color: C.n500 }]}>
@@ -193,7 +257,7 @@ export default function Inbox() {
   );
 }
 
-function ThreadRow({ thread, onPress }: { thread: Thread; onPress: () => void }) {
+function ThreadRow({ thread, onPress }: { thread: ThreadVm; onPress: () => void }) {
   const C = useColors();
   const offerBadge = (() => {
     if (thread.offerStatus === 'pending')

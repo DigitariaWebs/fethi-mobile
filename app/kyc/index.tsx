@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -5,12 +6,31 @@ import Svg, { Path } from 'react-native-svg';
 import { useColors, radius as R, shadow as Sh, t } from '@/theme';
 import { Icon, MSButton, PageHeader } from '@/components';
 import { useKYC } from '@/lib/kyc';
+import { useMe } from '@/hooks/useMe';
 
 export default function KYCHome() {
   const C = useColors();
   const router = useRouter();
-  const tier = useKYC((s) => s.tier);
-  const status = useKYC((s) => s.status);
+  const localTier = useKYC((s) => s.tier);
+  const localStatus = useKYC((s) => s.status);
+  const me = useMe();
+
+  // Source de verite = backend. Si /me dit VERIFIED on est au moins tier 1.
+  // Le store local sert juste pour le flow d'upload en cours (capture state).
+  const { tier, status } = useMemo(() => {
+    const backend = me.data?.kycStatus;
+    if (backend === 'VERIFIED') {
+      // Tier 1 par defaut quand verifie ; tier 2 si on avait deja uploade
+      // une preuve d'adresse en plus
+      const tier = localTier === 2 ? 2 : 1;
+      return { tier: tier as 0 | 1 | 2, status: 'approved' as const };
+    }
+    if (backend === 'PENDING') return { tier: 0 as const, status: 'pending' as const };
+    if (backend === 'REJECTED') return { tier: 0 as const, status: 'rejected' as const };
+    // UNVERIFIED = pas encore soumis ; on retombe sur le local (qui est
+    // 'idle' tant que rien n'a ete envoye)
+    return { tier: localTier, status: localStatus };
+  }, [me.data?.kycStatus, localTier, localStatus]);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>

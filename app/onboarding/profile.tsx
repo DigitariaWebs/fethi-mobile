@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -8,7 +8,8 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
@@ -16,25 +17,57 @@ import { Image } from 'expo-image';
 import { useColors, useIsDark, radius as R, shadow as Sh, t } from '@/theme';
 import { Icon, MSButton } from '@/components';
 import { useSession } from '@/lib/session';
+import { useMe, ME_QUERY_KEY } from '@/hooks/useMe';
 import { AgePickerSheet } from '@/components/onboarding/AgePickerSheet';
 import { PROFESSIONS, searchProfessions } from '@/lib/professions';
+import { meApi, ApiError } from '@/lib/api';
 
 export default function Profile() {
   const C = useColors();
   const isDark = useIsDark();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // ?edit=1 -> page utilisee depuis Settings, donc on revient en arriere
+  // apres sauvegarde au lieu de continuer le flow d'onboarding vers KYC.
+  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const isEditMode = edit === '1';
 
   const setDisplayName = useSession((s) => s.setDisplayName);
   const setAvatar = useSession((s) => s.setAvatar);
   const avatarUri = useSession((s) => s.avatarUri);
+  const sessionDisplayName = useSession((s) => s.displayName);
+  const me = useMe();
+  const queryClient = useQueryClient();
 
   const [name, setName] = useState('');
   const [age, setAge] = useState<number | null>(null);
   const [profession, setProfession] = useState('');
   const [profFocused, setProfFocused] = useState(false);
   const [agePickerOpen, setAgePickerOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const profInputRef = useRef<TextInput>(null);
+
+  // Prefill quand l'user revient sur le formulaire (cas: il a deja sauve
+  // ses infos une fois et reedite). Priorite : /me (vrai backend) > session
+  // (cache local rempli lors du flow precedent). Le set ne tire qu'une fois,
+  // pour ne pas reset ce que l'user est en train de taper.
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (prefilledRef.current) return;
+    const source = me.data;
+    if (source) {
+      if (source.displayName) setName(source.displayName);
+      else if (sessionDisplayName) setName(sessionDisplayName);
+      if (source.age != null) setAge(source.age);
+      if (source.profession) setProfession(source.profession);
+      if (source.avatarUrl && !avatarUri) setAvatar(source.avatarUrl);
+      prefilledRef.current = true;
+    } else if (sessionDisplayName) {
+      setName(sessionDisplayName);
+      prefilledRef.current = true;
+    }
+  }, [me.data, sessionDisplayName, avatarUri, setAvatar]);
 
   const filled = name.trim().length > 1;
 
@@ -92,7 +125,9 @@ export default function Profile() {
         >
           <Icon.Chevron size={18} dir="left" color={C.ink} />
         </Pressable>
-        <Text style={[t('caption'), { color: C.n500 }]}>Étape 2 sur 2</Text>
+        <Text style={[t('caption'), { color: C.n500 }]}>
+          {isEditMode ? 'Modifier mon profil' : 'Étape 2 sur 2'}
+        </Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -411,16 +446,67 @@ export default function Profile() {
           borderTopColor: C.divider,
         }}
       >
+        {saveError && (
+          <Text
+            style={[t('bodySm'), { color: C.danger, marginBottom: 8, textAlign: 'center' }]}
+          >
+            {saveError}
+          </Text>
+        )}
         <MSButton
           size="lg"
           fullWidth
-          state={filled ? 'default' : 'disabled'}
-          onPress={() => {
-            setDisplayName(name);
-            router.push('/kyc/intro?signup=1' as any);
+          state={!filled || saving ? 'disabled' : 'default'}
+          onPress={async () => {
+            if (!filled || saving) return;
+            setSaving(true);
+            setSaveError(null);
+            try {
+              // 1. Upload de l'avatar s'il y en a un (uri locale -> URL backend)
+              let avatarUrl: string | undefined;
+              if (avatarUri) {
+                try {
+                  avatarUrl = await meApi.uploadAvatar(avatarUri);
+                } catch (uploadErr) {
+                  // On continue sans avatar plutot que de bloquer le profil
+                  console.warn('Avatar upload failed, on continue sans :', uploadErr);
+                }
+              }
+
+              // 2. Sauvegarde du profil (displayName, age, profession, avatarUrl)
+              await meApi.updateProfile({
+                displayName: name.trim(),
+                age: age ?? undefined,
+                profession: profession.trim() || undefined,
+                avatarUrl,
+              });
+              setDisplayName(name);
+              // Invalide le cache /me pour que les autres ecrans rechargent
+              // les nouvelles valeurs sans flash de stale.
+              await queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
+              if (isEditMode) {
+                // Mise a jour depuis Settings -> on revient sur la page
+                // precedente (settings/account).
+                router.back();
+              } else {
+                router.push('/kyc/intro?signup=1' as any);
+              }
+            } catch (err) {
+              if (err instanceof ApiError) {
+                setSaveError(
+                  err.status === 401
+                    ? 'Session expirée, reconnecte-toi.'
+                    : err.message || 'Sauvegarde impossible.',
+                );
+              } else {
+                setSaveError('Impossible de contacter le serveur.');
+              }
+            } finally {
+              setSaving(false);
+            }
           }}
         >
-          Continuer
+          {saving ? 'Sauvegarde…' : 'Continuer'}
         </MSButton>
       </View>
 

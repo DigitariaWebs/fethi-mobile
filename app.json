@@ -2,23 +2,32 @@
   "expo": {
     "name": "MyStreet",
     "slug": "mystreet",
-    "version": "0.1.0",
+    "version": "1.0.0",
+    "description": "MyStreet — le marketplace de quartier. Vendre, louer et rendre service entre voisins à Lille et sa métropole.",
+    "primaryColor": "#D8542B",
     "orientation": "portrait",
     "scheme": "mystreet",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/favicon.png",
+    "splash": {
+      "image": "./assets/images/favicon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#D8542B"
+    },
     "ios": {
       "supportsTablet": false,
+      "buildNumber": "1",
       "bundleIdentifier": "com.mystreet.app",
       "icon": "./assets/images/favicon.png",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Allow MyStreet to show listings near you.",
-        "NSCameraUsageDescription": "Allow MyStreet to take photos of items you're selling.",
-        "NSPhotoLibraryUsageDescription": "Allow MyStreet to upload photos of your listings.",
+        "NSLocationWhenInUseUsageDescription": "MyStreet utilise ta position pour afficher les annonces autour de toi.",
+        "NSCameraUsageDescription": "MyStreet utilise l'appareil photo pour ajouter des photos à tes annonces.",
+        "NSPhotoLibraryUsageDescription": "MyStreet accède à tes photos pour les ajouter à tes annonces et ton profil.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
+      "versionCode": 1,
       "package": "com.mystreet.app",
       "icon": "./assets/images/favicon.png",
       "adaptiveIcon": {
@@ -29,32 +38,44 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "edgeToEdgeEnabled": true
     },
     "plugins": [
       "expo-router",
       "expo-font",
       [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.mystreet.app",
+          "enableGooglePay": true
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "ios": {
-            "deploymentTarget": "26.0"
+            "deploymentTarget": "15.1"
+          },
+          "android": {
+            "minSdkVersion": 24,
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.0.0"
           }
-        }
-      ],
-      "./plugins/withMinPodDeploymentTarget",
-      [
-        "expo-maps",
-        {
-          "requestLocationPermission": true,
-          "locationPermission": "Allow MyStreet to show listings near you."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow MyStreet to upload photos of your listings.",
-          "cameraPermission": "Allow MyStreet to take photos of items you're selling."
+          "photosPermission": "MyStreet accède à tes photos pour les ajouter à tes annonces.",
+          "cameraPermission": "MyStreet utilise l'appareil photo pour prendre des photos de tes annonces."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "MyStreet utilise ta position pour afficher les annonces autour de toi."
         }
       ],
       "expo-video"
@@ -65,8 +86,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "9c9e906b-2bd6-4143-b429-c9a23a67b541"
+        "projectId": "205917a5-c350-4815-8a1d-2f60f18e7336"
       }
-    }
+    },
+    "owner": "iheb1"
   }
 }

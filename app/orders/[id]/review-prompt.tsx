@@ -8,6 +8,7 @@ import { useColors, radius as R, t } from '@/theme';
 import { MSButton, PageHeader } from '@/components';
 import { useOrders } from '@/lib/orders';
 import { useToast } from '@/lib/toast';
+import { reviewsApi } from '@/lib/api';
 
 const TAGS = ['Sympa', 'À l\'heure', 'Honnête', 'Facile à trouver', 'Réactif', 'Bon contact'];
 
@@ -22,6 +23,7 @@ export default function ReviewPrompt() {
   const [rating, setRating] = useState(5);
   const [tags, setTags] = useState<string[]>([]);
   const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   if (!order) return null;
   const isBuyer = order.buyerId === 'me';
@@ -134,15 +136,48 @@ export default function ReviewPrompt() {
         <MSButton
           size="lg"
           fullWidth
-          onPress={() => {
-            patch(order.id, {
-              [isBuyer ? 'buyerReview' : 'sellerReview']: { rating, comment: comment.trim() || undefined },
-            });
-            toast.success('Avis envoyé.');
-            router.back();
+          state={submitting ? 'disabled' : undefined}
+          onPress={async () => {
+            // Compose le commentaire avec les tags choisis pour donner du grain
+            // au texte cote backend. Tags + comment final = "Sympa, A l'heure — C'etait nickel."
+            const tagsLine = tags.join(', ');
+            const fullComment = [tagsLine, comment.trim()].filter(Boolean).join(' — ').slice(0, 2000);
+            setSubmitting(true);
+            try {
+              await reviewsApi.create({
+                orderId: order.id,
+                rating,
+                comment: fullComment || undefined,
+              });
+              // Cache local pour que l'ecran detail order affiche immediatement
+              patch(order.id, {
+                [isBuyer ? 'buyerReview' : 'sellerReview']: { rating, comment: fullComment || undefined },
+              });
+              toast.success('Avis envoyé.');
+              router.back();
+            } catch (err: any) {
+              if (err?.code === 'ALREADY_REVIEWED') {
+                toast.show({
+                  message: 'Avis déjà laissé',
+                  description: 'Tu as déjà noté cette commande.',
+                  tone: 'warning',
+                });
+                router.back();
+              } else if (err?.code === 'ORDER_NOT_COMPLETED') {
+                toast.show({
+                  message: 'Commande non terminée',
+                  description: 'Tu pourras laisser un avis une fois la remise confirmée.',
+                  tone: 'warning',
+                });
+              } else {
+                toast.error('Erreur réseau. Réessaie.');
+              }
+            } finally {
+              setSubmitting(false);
+            }
           }}
         >
-          Envoyer l'avis
+          {submitting ? 'Envoi…' : "Envoyer l'avis"}
         </MSButton>
       </View>
     </View>

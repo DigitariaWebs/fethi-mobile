@@ -9,14 +9,17 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useColors, useIsDark, radius as R, shadow as Sh, t } from '@/theme';
 import { Icon, MSButton } from '@/components';
 import { useSession } from '@/lib/session';
+import { useMe, ME_QUERY_KEY } from '@/hooks/useMe';
 import { searchAddressesInLille, type GeocodeResult } from '@/lib/geocode';
 import { AddressMapPreview } from '@/components/onboarding/AddressMapPreview';
+import { meApi, ApiError } from '@/lib/api';
 
 const DEBOUNCE_MS = 250;
 
@@ -25,10 +28,14 @@ export default function Address() {
   const isDark = useIsDark();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const isEditMode = edit === '1';
   const setAddress = useSession((s) => s.setAddress);
   const sessionAddress = useSession((s) => s.address);
   const sessionLat = useSession((s) => s.addressLat);
   const sessionLng = useSession((s) => s.addressLng);
+  const me = useMe();
+  const queryClient = useQueryClient();
 
   const [value, setValue] = useState(sessionAddress);
   const [focused, setFocused] = useState(false);
@@ -46,8 +53,27 @@ export default function Address() {
         }
       : null,
   );
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+
+  // Prefill depuis /me si l'user a deja une adresse en base (cas: il revient
+  // sur le flow apres setup partiel sur un autre device). On ne tire qu'une
+  // seule fois pour ne pas reset ce que l'user tape.
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (prefilledRef.current) return;
+    if (!me.data) return;
+    const addr = me.data.addressLabel;
+    const lat = me.data.lat;
+    const lng = me.data.lng;
+    if (addr && lat != null && lng != null && !sessionAddress) {
+      setValue(addr);
+      setPicked({ id: 'me', label: addr, city: me.data.city ?? 'Lille', lat, lng });
+      prefilledRef.current = true;
+    }
+  }, [me.data, sessionAddress]);
 
   // Debounced fetch — fires when the user has typed and *isn't* currently
   // displaying a freshly-picked address (typing again clears the picked state).
@@ -109,7 +135,10 @@ export default function Address() {
   };
 
   const continueDisabled = !picked;
-  const showSuggestions = focused && value.trim().length >= 2 && !picked;
+  // On web, le blur de l'input est immédiat dès qu'on hover/click ailleurs,
+  // ce qui ferme les suggestions avant qu'on ait le temps de cliquer dessus.
+  // On garde donc le panneau ouvert tant qu'il y a du texte et pas de selection.
+  const showSuggestions = value.trim().length >= 2 && !picked;
 
   return (
     <KeyboardAvoidingView
@@ -367,17 +396,56 @@ export default function Address() {
           borderTopColor: C.divider,
         }}
       >
+        {saveError && (
+          <Text
+            style={[t('bodySm'), { color: C.danger, marginBottom: 8, textAlign: 'center' }]}
+          >
+            {saveError}
+          </Text>
+        )}
         <MSButton
           size="lg"
           fullWidth
-          state={continueDisabled ? 'disabled' : 'default'}
-          onPress={() => {
-            if (!picked) return;
-            setAddress(picked.label, picked.lat, picked.lng);
-            router.push('/onboarding/profile');
+          state={continueDisabled || saving ? 'disabled' : 'default'}
+          onPress={async () => {
+            if (!picked || saving) return;
+            setSaving(true);
+            setSaveError(null);
+            try {
+              // Sauvegarde immediate cote backend (PATCH /me/profile)
+              await meApi.updateProfile({
+                addressLabel: picked.label,
+                lat: picked.lat,
+                lng: picked.lng,
+                city: picked.city ?? 'Lille',
+              });
+              // Cache local (zustand + AsyncStorage) pour les ecrans suivants
+              setAddress(picked.label, picked.lat, picked.lng);
+              // Invalide /me pour que les autres ecrans (profile, settings)
+              // reflechissent la nouvelle adresse au prochain focus.
+              await queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
+              if (isEditMode) {
+                // Modification depuis Settings -> revient en arriere
+                router.back();
+              } else {
+                router.push('/onboarding/profile');
+              }
+            } catch (err) {
+              if (err instanceof ApiError) {
+                setSaveError(
+                  err.status === 401
+                    ? 'Session expirée, reconnecte-toi.'
+                    : err.message || 'Sauvegarde impossible.',
+                );
+              } else {
+                setSaveError('Impossible de contacter le serveur.');
+              }
+            } finally {
+              setSaving(false);
+            }
           }}
         >
-          Continuer
+          {saving ? 'Sauvegarde…' : 'Continuer'}
         </MSButton>
       </View>
     </KeyboardAvoidingView>

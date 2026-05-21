@@ -5,24 +5,65 @@ import { useColors } from '@/theme';
 import { PageHeader } from '@/components';
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsRow';
 import { useSession } from '@/lib/session';
+import { useMe } from '@/hooks/useMe';
 import { confirm } from '@/lib/confirm';
+
+function maskPhone(phone: string | null | undefined): string {
+  if (!phone) return '—';
+  // Garde l'indicatif + 2 derniers chiffres, masque le milieu
+  if (phone.length <= 6) return phone;
+  const head = phone.slice(0, 3);
+  const tail = phone.slice(-2);
+  return `${head} ••• ${tail}`;
+}
 
 export default function Account() {
   const C = useColors();
   const router = useRouter();
   const session = useSession();
+  const me = useMe();
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
       <PageHeader title="Mon compte" />
       <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <SettingsGroup title="Profil">
+          <SettingsRow
+            kind="link"
+            label="Modifier mon profil"
+            hint="Nom, âge, profession, photo"
+            onPress={() => router.push('/onboarding/profile?edit=1' as any)}
+            last
+          />
+        </SettingsGroup>
         <SettingsGroup title="Connexion">
-          <SettingsRow kind="value" label="E-mail" value="fadiprogix@gmail.com" onPress={() => router.push('/settings/account/email' as any)} />
-          <SettingsRow kind="value" label="Téléphone" value="+33 6 ••• 12" onPress={() => router.push('/settings/account/phone' as any)} />
-          <SettingsRow kind="link" label="Mot de passe" onPress={() => router.push('/settings/account/password' as any)} last />
+          <SettingsRow
+            kind="value"
+            label="E-mail"
+            value={me.data?.email ?? '—'}
+            onPress={() => router.push('/settings/account/email' as any)}
+          />
+          <SettingsRow
+            kind="value"
+            label="Téléphone"
+            value={maskPhone(me.data?.phone)}
+            onPress={() => router.push('/settings/account/phone' as any)}
+          />
+          <SettingsRow
+            kind="link"
+            label="Mot de passe"
+            onPress={() => router.push('/settings/account/password' as any)}
+            last
+          />
         </SettingsGroup>
         <SettingsGroup title="Région">
-          <SettingsRow kind="value" label="Langue" value="Anglais" onPress={() => router.push('/settings/preferences' as any)} />
-          <SettingsRow kind="value" label="Région" value={session.address || 'Lille'} last />
+          <SettingsRow kind="value" label="Langue" value="Français" onPress={() => router.push('/settings/preferences' as any)} />
+          <SettingsRow
+            kind="value"
+            label="Quartier"
+            value={me.data?.neighborhood ?? me.data?.city ?? session.address ?? 'Lille'}
+            onPress={() => router.push('/onboarding/address?edit=1' as any)}
+            last
+          />
         </SettingsGroup>
         <SettingsGroup>
           <SettingsRow

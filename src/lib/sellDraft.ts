@@ -14,6 +14,8 @@ export type SellDraft = {
   photos: string[]; // local URIs
   title: string;
   category: string;
+  /** ID backend de la categorie choisie (si elle vient du backend). Null si custom. */
+  categoryId: string | null;
   tags: string[];
   condition: 'new' | 'likenew' | 'good' | 'fair' | null;
   description: string;
@@ -61,6 +63,7 @@ const initial: SellDraft = {
   ],
   title: '',
   category: 'Vélos & mobilité',
+  categoryId: null,
   tags: ['Vintage', 'Adulte'],
   condition: 'good',
   description: '',
@@ -84,7 +87,7 @@ type Persisted = SellDraft & { lastRoute: string | null };
 function snapshot(s: State): Persisted {
   const {
     listingType,
-    photos, title, category, tags, condition, description,
+    photos, title, category, categoryId, tags, condition, description,
     price, acceptOffers, minOffer, pickupMethod, availability,
     rentalPricePerDay, rentalPricePerWeek, rentalDeposit, rentalUnavailableDates,
     serviceMode, serviceRate, serviceMinDuration, serviceRadiusKm,
@@ -92,7 +95,7 @@ function snapshot(s: State): Persisted {
   } = s;
   return {
     listingType,
-    photos, title, category, tags, condition, description,
+    photos, title, category, categoryId, tags, condition, description,
     price, acceptOffers, minOffer, pickupMethod, availability,
     rentalPricePerDay, rentalPricePerWeek, rentalDeposit, rentalUnavailableDates,
     serviceMode, serviceRate, serviceMinDuration, serviceRadiusKm,

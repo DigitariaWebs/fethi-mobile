@@ -1,16 +1,18 @@
-// Order lifecycle store. Each order is created when a checkout completes;
-// both buyer and seller see the same record (filtered by role at the
-// query layer). Real backend would replace fixtures with API calls.
+// Orders store — synchronise avec le backend.
+// On garde la forme historique (OrderStatus lowercase + 'sale'/'rental'/'service')
+// pour ne pas casser les ecrans existants, et on mappe ApiOrder -> Order.
 
 import { create } from 'zustand';
 
+import { ordersApi, type ApiOrder, type ApiOrderStatus } from './api';
+
 export type OrderStatus =
-  | 'awaiting-pickup'   // paid, not yet handed off
-  | 'handoff-pending'   // both sides need to confirm meetup
-  | 'completed'         // confirmed by both
-  | 'refunded'          // refund issued
-  | 'disputed'          // open dispute
-  | 'cancelled';        // cancelled before handoff
+  | 'awaiting-pickup'
+  | 'handoff-pending'
+  | 'completed'
+  | 'refunded'
+  | 'disputed'
+  | 'cancelled';
 
 export type OrderType = 'sale' | 'rental' | 'service';
 
@@ -22,137 +24,141 @@ export type Order = {
   type: OrderType;
   buyerId: string;
   sellerId: string;
-  amountCents: number;          // total in cents
-  feeCents: number;             // platform fee in cents
-  depositCents?: number;        // rentals
+  amountCents: number;
+  feeCents: number;
+  depositCents?: number;
   rentalDates?: { start: string; end: string };
   serviceSlot?: { date: string; from: string; to: string };
   status: OrderStatus;
-  createdAt: string;            // ISO
-  // Both confirmations set when both have tapped "We met" — when both true
-  // and depositReleased (rentals only) we flip to `completed`.
+  createdAt: string;
   buyerConfirmed: boolean;
   sellerConfirmed: boolean;
   depositReleased?: boolean;
-  // Optional review state, filled post-completion.
   buyerReview?: { rating: number; comment?: string };
   sellerReview?: { rating: number; comment?: string };
 };
 
-const SEED: Order[] = [
-  {
-    id: 'o1',
-    listingId: '4',
-    listingTitle: 'PS4 + 5 jeux + 2 manettes',
-    listingThumb: 'https://images.unsplash.com/photo-1606144042614-b2417e99c4e3?w=400&q=80',
-    type: 'sale',
-    buyerId: 'me',
-    sellerId: 'karim',
-    amountCents: 16500,
-    feeCents: 95,
-    status: 'awaiting-pickup',
-    createdAt: '2026-05-03T14:38:00Z',
-    buyerConfirmed: false,
-    sellerConfirmed: false,
-  },
-  {
-    id: 'o2',
-    listingId: '3',
-    listingTitle: 'Machine Nespresso + 40 capsules',
-    listingThumb: 'https://images.unsplash.com/photo-1572119865084-43c285814d63?w=400&q=80',
-    type: 'sale',
-    buyerId: 'me',
-    sellerId: 'lea',
-    amountCents: 4500,
-    feeCents: 95,
-    status: 'completed',
-    createdAt: '2026-04-29T11:14:00Z',
-    buyerConfirmed: true,
-    sellerConfirmed: true,
-    buyerReview: { rating: 5, comment: 'Super sympa et machine impeccable !' },
-  },
-  {
-    id: 'o3',
-    listingId: 'r1',
-    listingTitle: 'Perceuse Bosch Pro + visserie',
-    listingThumb: 'https://images.unsplash.com/photo-1581244277943-fe4a9c777189?w=400&q=80',
-    type: 'rental',
-    buyerId: 'me',
-    sellerId: 'olivier',
-    amountCents: 2400,
-    feeCents: 95,
-    depositCents: 6000,
-    rentalDates: { start: '2026-05-08', end: '2026-05-11' },
-    status: 'handoff-pending',
-    createdAt: '2026-05-03T16:20:00Z',
-    buyerConfirmed: true,
-    sellerConfirmed: false,
-  },
-  {
-    id: 'o4',
-    listingId: '1',
-    listingTitle: 'Vélo de ville Peugeot, années 80',
-    listingThumb: 'https://images.unsplash.com/photo-1532298229144-0ec0c57515c7?w=400&q=80',
-    type: 'sale',
-    buyerId: 'thomas',
-    sellerId: 'me',
-    amountCents: 11000,
-    feeCents: 95,
-    status: 'awaiting-pickup',
-    createdAt: '2026-05-02T16:02:00Z',
-    buyerConfirmed: false,
-    sellerConfirmed: false,
-  },
-  {
-    id: 'o5',
-    listingId: 's1',
-    listingTitle: 'Cours de guitare pour débutants',
-    listingThumb: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&q=80',
-    type: 'service',
-    buyerId: 'me',
-    sellerId: 'lea',
-    amountCents: 2500,
-    feeCents: 95,
-    serviceSlot: { date: '2026-05-09', from: '17:00', to: '18:00' },
-    status: 'awaiting-pickup',
-    createdAt: '2026-05-04T10:00:00Z',
-    buyerConfirmed: false,
-    sellerConfirmed: false,
-  },
-];
+const STATUS_MAP: Record<ApiOrderStatus, OrderStatus> = {
+  AWAITING_PICKUP: 'awaiting-pickup',
+  HANDOFF_PENDING: 'handoff-pending',
+  COMPLETED: 'completed',
+  CANCELLED: 'cancelled',
+  REFUNDED: 'refunded',
+  DISPUTED: 'disputed',
+};
+
+function toFixture(a: ApiOrder): Order {
+  const type: OrderType =
+    a.listingType === 'VENTE' ? 'sale'
+      : a.listingType === 'LOCATION' ? 'rental'
+        : 'service';
+  return {
+    id: a.id,
+    listingId: a.listingId,
+    listingTitle: a.listingTitle ?? '',
+    listingThumb: a.listingThumb ??
+      'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&q=80',
+    type,
+    buyerId: a.buyerId,
+    sellerId: a.sellerId,
+    amountCents: a.amountCents,
+    feeCents: a.feeCents,
+    depositCents: a.depositCents ?? undefined,
+    rentalDates: a.rentalStart && a.rentalEnd
+      ? { start: a.rentalStart, end: a.rentalEnd }
+      : undefined,
+    status: STATUS_MAP[a.status],
+    createdAt: a.createdAt,
+    buyerConfirmed: a.buyerConfirmed,
+    sellerConfirmed: a.sellerConfirmed,
+    depositReleased: a.depositReleased ?? undefined,
+  };
+}
 
 type OrdersState = {
   orders: Order[];
+  loading: boolean;
+  loaded: boolean;
+  /** Charge les commandes du user (buyer + seller fusionnees). */
+  load: () => Promise<void>;
+  /** Achete une annonce -> nouvelle commande. */
+  buyListing: (listingId: string, amountCentsOverride?: number) => Promise<Order>;
+  /** Marque la remise comme effectuee cote user courant. */
+  confirmHandoff: (id: string, side: 'buyer' | 'seller') => Promise<void>;
+  /** Annule la commande. */
+  cancel: (id: string, reason?: string) => Promise<void>;
+  /** Ajoute une commande au store (compat checkout legacy / scenarios). */
   add: (o: Order) => void;
+  /** Patche localement (compat dispute / refund / review / scenarios). */
   patch: (id: string, patch: Partial<Order>) => void;
-  // Mark either confirmation; flips to `completed` when both are true (and
-  // deposit is released for rentals).
-  confirmHandoff: (id: string, side: 'buyer' | 'seller') => void;
+  /** Libere la caution (rental). Local-only — endpoint backend a faire. */
   releaseDeposit: (id: string) => void;
 };
 
 export const useOrders = create<OrdersState>((set, get) => ({
-  orders: SEED,
+  orders: [],
+  loading: false,
+  loaded: false,
+
+  load: async () => {
+    if (get().loading) return;
+    set({ loading: true });
+    try {
+      const [asBuyer, asSeller] = await Promise.all([
+        ordersApi.list('buyer', 0, 100),
+        ordersApi.list('seller', 0, 100),
+      ]);
+      // Fusionne et dedup (un user peut etre les deux cotes sur des orders distincts)
+      const seen = new Set<string>();
+      const all: Order[] = [];
+      [...asBuyer.content, ...asSeller.content].forEach((a) => {
+        if (!seen.has(a.id)) {
+          seen.add(a.id);
+          all.push(toFixture(a));
+        }
+      });
+      all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      set({ orders: all, loaded: true });
+    } catch (err) {
+      console.warn('orders load failed', err);
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  buyListing: async (listingId, amountCentsOverride) => {
+    const created = await ordersApi.create(listingId, amountCentsOverride);
+    const o = toFixture(created);
+    set({ orders: [o, ...get().orders] });
+    return o;
+  },
+
+  confirmHandoff: async (id, _side) => {
+    try {
+      // Le backend determine le cote (buyer/seller) selon l'user connecte
+      const updated = await ordersApi.confirmPickup(id);
+      const o = toFixture(updated);
+      set({ orders: get().orders.map((x) => (x.id === id ? o : x)) });
+    } catch (err) {
+      console.warn('confirmHandoff failed', err);
+    }
+  },
+
+  cancel: async (id, reason) => {
+    try {
+      const updated = await ordersApi.cancel(id, reason);
+      const o = toFixture(updated);
+      set({ orders: get().orders.map((x) => (x.id === id ? o : x)) });
+    } catch (err) {
+      console.warn('cancel failed', err);
+    }
+  },
+
+  // ---- Compat (utilise par checkout legacy, dispute, refund, scenarios) ----
   add: (o) => set({ orders: [o, ...get().orders] }),
   patch: (id, patch) =>
     set({
       orders: get().orders.map((o) => (o.id === id ? { ...o, ...patch } : o)),
-    }),
-  confirmHandoff: (id, side) =>
-    set({
-      orders: get().orders.map((o) => {
-        if (o.id !== id) return o;
-        const next = {
-          ...o,
-          buyerConfirmed: side === 'buyer' ? true : o.buyerConfirmed,
-          sellerConfirmed: side === 'seller' ? true : o.sellerConfirmed,
-        };
-        const fullyConfirmed = next.buyerConfirmed && next.sellerConfirmed;
-        const rentalDone = o.type !== 'rental' || next.depositReleased;
-        if (fullyConfirmed && rentalDone) next.status = 'completed';
-        else if (fullyConfirmed) next.status = 'awaiting-pickup';
-        return next;
-      }),
     }),
   releaseDeposit: (id) =>
     set({

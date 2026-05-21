@@ -29,8 +29,15 @@ export default function SettingsHub() {
           <SettingsRow kind="link" label="Commandes" onPress={() => router.push('/orders' as any)} last />
         </SettingsGroup>
 
+        <SettingsGroup title="Mes contenus">
+          <SettingsRow kind="link" label="Mes favoris" hint="Annonces sauvegardées" onPress={() => router.push('/favorites' as any)} />
+          <SettingsRow kind="link" label="Recherches sauvegardées" hint="Filtres + alertes" onPress={() => router.push('/saved-searches' as any)} />
+          <SettingsRow kind="link" label="Mes annonces" onPress={() => router.push('/my-listings' as any)} last />
+        </SettingsGroup>
+
         <SettingsGroup title="Préférences">
           <SettingsRow kind="link" label="Notifications" onPress={() => router.push('/settings/notifications' as any)} />
+          <SettingsRow kind="link" label="Apparence" hint="Mode sombre, taille du texte" onPress={() => router.push('/settings/appearance' as any)} />
           <SettingsRow kind="link" label="Confidentialité et sécurité" onPress={() => router.push('/settings/privacy' as any)} />
           <SettingsRow kind="link" label="Utilisateurs bloqués" onPress={() => router.push('/settings/blocked' as any)} />
           <SettingsRow kind="link" label="Préférences de recherche" onPress={() => router.push('/settings/preferences' as any)} last />

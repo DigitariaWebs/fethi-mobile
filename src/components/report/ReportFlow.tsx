@@ -14,24 +14,29 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, radius as R, t } from '@/theme';
 import { Icon, MSButton, PageHeader } from '@/components';
 import { useToast } from '@/lib/toast';
+import { reportsApi, type ReportTargetType } from '@/lib/api';
 
 // Reusable shape for both report flows. Pass the title + reason list +
-// header subtitle; the component handles the rest.
+// header subtitle + identifie la cible — le composant envoie le POST
+// /reports et gere le rate-limit + l'erreur reseau.
 type Props = {
   title: string;
   subtitle?: string;
   reasons: string[];
+  targetType: ReportTargetType;
+  targetId: string;
 };
 
-export function ReportFlow({ title, subtitle, reasons }: Props) {
+export function ReportFlow({ title, subtitle, reasons, targetType, targetId }: Props) {
   const C = useColors();
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const [reason, setReason] = useState<string | null>(null);
   const [details, setDetails] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const valid = !!reason && details.trim().length >= 8;
+  const valid = !!reason && details.trim().length >= 8 && !submitting;
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: C.paper }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -97,12 +102,34 @@ export function ReportFlow({ title, subtitle, reasons }: Props) {
           size="lg"
           fullWidth
           state={valid ? undefined : 'disabled'}
-          onPress={() => {
-            toast.success("Signalement envoyé — merci. Nous reviendrons vers toi.");
-            router.back();
+          onPress={async () => {
+            if (!reason) return;
+            setSubmitting(true);
+            try {
+              await reportsApi.create({
+                targetType,
+                targetId,
+                reason,
+                details: details.trim(),
+              });
+              toast.success("Signalement envoyé — merci. Nous reviendrons vers toi.");
+              router.back();
+            } catch (err: any) {
+              if (err?.code === 'RATE_LIMITED') {
+                toast.show({
+                  message: 'Trop de signalements',
+                  description: 'Attends une heure avant d\'en envoyer un nouveau.',
+                  tone: 'warning',
+                });
+              } else {
+                toast.error('Erreur réseau. Réessaie dans un instant.');
+              }
+            } finally {
+              setSubmitting(false);
+            }
           }}
         >
-          Envoyer le signalement
+          {submitting ? 'Envoi…' : 'Envoyer le signalement'}
         </MSButton>
       </View>
     </KeyboardAvoidingView>

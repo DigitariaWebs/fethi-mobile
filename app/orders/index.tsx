@@ -1,11 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 
 import { useColors, radius as R, shadow as Sh, t, type Palette } from '@/theme';
 import { EmptyState, Icon, MSPill, PageHeader } from '@/components';
 import { useOrders, ORDER_STATUS_LABEL, formatEuros, type Order, type OrderStatus } from '@/lib/orders';
+import { tokenStore } from '@/lib/api';
 
 type Tab = 'buying' | 'selling';
 
@@ -24,21 +25,40 @@ export default function OrdersInbox() {
   const C = useColors();
   const router = useRouter();
   const orders = useOrders((s) => s.orders);
+  const loadOrders = useOrders((s) => s.load);
+  const loading = useOrders((s) => s.loading);
   const [tab, setTab] = useState<Tab>('buying');
   const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 700);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+
+  // Recupere l'userId du token store
+  useEffect(() => {
+    tokenStore.getUserId().then(setMyUserId);
   }, []);
 
+  // Charge les commandes au mount
+  useEffect(() => {
+    loadOrders();
+  }, [loadOrders]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadOrders();
+    setRefreshing(false);
+  }, [loadOrders]);
+
   const visible = useMemo(
-    () =>
-      orders.filter((o) => (tab === 'buying' ? o.buyerId === 'me' : o.sellerId === 'me')),
-    [orders, tab],
+    () => {
+      if (!myUserId) return [];
+      return orders.filter((o) =>
+        tab === 'buying' ? o.buyerId === myUserId : o.sellerId === myUserId,
+      );
+    },
+    [orders, tab, myUserId],
   );
   const counts = {
-    buying: orders.filter((o) => o.buyerId === 'me').length,
-    selling: orders.filter((o) => o.sellerId === 'me').length,
+    buying: myUserId ? orders.filter((o) => o.buyerId === myUserId).length : 0,
+    selling: myUserId ? orders.filter((o) => o.sellerId === myUserId).length : 0,
   };
 
   return (
@@ -53,7 +73,11 @@ export default function OrdersInbox() {
         </MSPill>
       </View>
 
-      {visible.length === 0 ? (
+      {loading && orders.length === 0 ? (
+        <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+          <ActivityIndicator color={C.primary} size="large" />
+        </View>
+      ) : visible.length === 0 ? (
         <EmptyState
           title={tab === 'buying' ? 'Aucun achat pour le moment.' : 'Aucune vente pour le moment.'}
           description={
