@@ -1,13 +1,14 @@
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Polygon, Polyline, Path, Rect, Line } from 'react-native-svg';
 
 import { useColors, useIsDark, radius as R, shadow as Sh, t } from '@/theme';
 import { Icon } from '@/components';
-import { MY_LISTING } from '@/lib/myListings';
+import { listingsApi, formatListingPrice, listingMainPhoto, offersApi, type Listing, type OfferResponse } from '@/lib/api';
 
 // Phase 6 / Screen 46 — your live listing.
 // Owner POV: stats strip, performance hint, action grid, sticky offers CTA.
@@ -16,7 +17,65 @@ export default function SellerListing() {
   const isDark = useIsDark();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const l = MY_LISTING.base;
+  const { id } = useLocalSearchParams<{ id: string }>();
+
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [offers, setOffers] = useState<OfferResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    setLoading(true);
+    listingsApi.get(id)
+      .then((l) => { if (alive) setListing(l); })
+      .catch((err) => console.warn('seller listing load', err))
+      .finally(() => alive && setLoading(false));
+    // Charge les offres recues filtrees pour CETTE annonce
+    offersApi.received()
+      .then((all) => { if (alive) setOffers(all.filter((o) => o.listingId === id && o.status === 'PENDING')); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [id]);
+
+  // Forme compatible avec le rendu legacy (titre, prix formatte, photo)
+  const l = useMemo(() => {
+    if (!listing) {
+      return {
+        id: id ?? '',
+        title: '',
+        photo: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&q=80',
+        priceLabel: '',
+      };
+    }
+    return {
+      id: listing.id,
+      title: listing.title,
+      photo: listingMainPhoto(listing),
+      priceLabel: formatListingPrice(listing),
+    };
+  }, [listing, id]);
+
+  // Stats (viewCount/favoritesCount du backend; messages/offers pas exposés)
+  const stats = {
+    views: listing?.viewCount ?? 0,
+    saves: listing?.favoritesCount ?? 0,
+    offers: offers.length,
+  };
+
+  // Date "il y a X jours"
+  const postedDaysAgo = useMemo(() => {
+    if (!listing?.createdAt) return 0;
+    return Math.max(0, Math.floor((Date.now() - new Date(listing.createdAt).getTime()) / (24 * 3600 * 1000)));
+  }, [listing?.createdAt]);
+
+  if (loading && !listing) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={C.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
@@ -142,7 +201,7 @@ export default function SellerListing() {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={[t('h2'), { fontSize: 22, color: C.ink }]}>{l.title}</Text>
               <Text style={[t('caption'), { color: C.n500, marginTop: 4 }]}>
-                Vieux-Lille · publiée il y a {MY_LISTING.postedDaysAgo} jours
+                {listing?.neighborhood ?? 'Lille'} · publiée il y a {postedDaysAgo} jour{postedDaysAgo > 1 ? 's' : ''}
               </Text>
             </View>
             <Text
@@ -169,13 +228,11 @@ export default function SellerListing() {
               flexDirection: 'row',
             }}
           >
-            <Stat top={String(MY_LISTING.views)} bottom="Vues" />
+            <Stat top={String(stats.views)} bottom="Vues" />
             <Divider />
-            <Stat top={String(MY_LISTING.saves)} bottom="Sauvegardes" />
+            <Stat top={String(stats.saves)} bottom="Sauvegardes" />
             <Divider />
-            <Stat top={String(MY_LISTING.messages)} bottom="Messages" />
-            <Divider />
-            <Stat top={String(MY_LISTING.offers)} bottom="Offres" accent />
+            <Stat top={String(stats.offers)} bottom="Offres" accent />
           </View>
 
           {/* Performance hint */}
@@ -247,7 +304,7 @@ export default function SellerListing() {
             <ActionTile
               icon={<Icon.Check size={14} color={C.ink} />}
               label="Marquer comme vendu"
-              onPress={() => router.push(`/seller/${MY_LISTING.base.id}/sold`)}
+              onPress={() => router.push(`/seller/${l.id}/sold`)}
             />
           </View>
         </View>
@@ -269,7 +326,7 @@ export default function SellerListing() {
         }}
       >
         <Pressable
-          onPress={() => router.push(`/seller/${MY_LISTING.base.id}/offers`)}
+          onPress={() => router.push(`/seller/${l.id}/offers`)}
           style={{
             paddingVertical: 14,
             paddingHorizontal: 16,
@@ -296,7 +353,7 @@ export default function SellerListing() {
                   fontFamily: 'InstrumentSans-Bold',
                 }}
               >
-                {MY_LISTING.offers}
+                {stats.offers}
               </Text>
             </View>
             <Text

@@ -1,40 +1,64 @@
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useColors, radius as R, t } from '@/theme';
 import { Calendar } from '@/components/calendar';
 import { MSButton, PageHeader } from '@/components';
-import { LISTINGS, type ServiceListing } from '@/lib/fixtures';
-import { fromISODate, toISODate, type ISODate } from '@/lib/availability';
+import { listingsApi, type Listing } from '@/lib/api';
+import { toISODate, type ISODate } from '@/lib/availability';
 
-// Buyer picks a date + time slot for a service. Slots are derived from
-// the seller's availabilityWindows for that weekday, sliced into 60-min
-// chunks. Real backend would honor the seller's actual booked slots.
+// Buyer picks a date + time slot for a service. Backend doesn't expose
+// availability windows yet — we default to 9h-18h workday slots until
+// /listings/:id/slots is added.
+const DEFAULT_SLOTS = [
+  '09:00',
+  '10:00',
+  '11:00',
+  '13:00',
+  '14:00',
+  '15:00',
+  '16:00',
+  '17:00',
+];
+
 export default function ServiceSlot() {
   const C = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { listingId } = useLocalSearchParams<{ listingId: string }>();
-  const listing = LISTINGS.find((l) => l.id === listingId) as ServiceListing | undefined;
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
   const [date, setDate] = useState<ISODate>(toISODate(new Date()));
   const [slot, setSlot] = useState<string | null>(null);
 
-  const slots = useMemo(() => {
-    if (!listing) return [];
-    const weekday = (fromISODate(date).getDay()); // 0..6
-    const windows = listing.availabilityWindows.filter((w) => w.weekday === weekday);
-    const out: string[] = [];
-    windows.forEach((w) => {
-      const [fh] = w.from.split(':').map(Number);
-      const [th] = w.to.split(':').map(Number);
-      for (let h = fh; h < th; h++) out.push(`${String(h).padStart(2, '0')}:00`);
-    });
-    return out;
-  }, [listing, date]);
+  useEffect(() => {
+    if (!listingId) return;
+    let alive = true;
+    listingsApi
+      .get(listingId)
+      .then((l) => alive && setListing(l))
+      .catch(() => alive && setListing(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [listingId]);
 
-  if (!listing || listing.listingType !== 'service') {
+  const slots = useMemo(() => DEFAULT_SLOTS, []);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
+        <PageHeader title="Réserver un créneau" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.n500} />
+        </View>
+      </View>
+    );
+  }
+  if (!listing || listing.listingType !== 'SERVICE') {
     return (
       <View style={{ flex: 1, backgroundColor: C.paper }}>
         <PageHeader title="Réserver un créneau" />

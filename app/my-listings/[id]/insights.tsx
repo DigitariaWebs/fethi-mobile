@@ -1,31 +1,91 @@
-import { ScrollView, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { useLocalSearchParams } from 'expo-router';
 
 import { useColors, radius as R, shadow as Sh, t } from '@/theme';
 import { PageHeader } from '@/components';
-import { LISTINGS } from '@/lib/fixtures';
+import { listingsApi, type Listing } from '@/lib/api';
 
-const VIEWS_7D = [12, 21, 18, 9, 26, 31, 27];
-const RECOMMENDATIONS = [
-  'Baisse ton prix de 10 % pour obtenir ~30 % de vues en plus.',
-  'Ajoute 2 photos de plus — les annonces avec 5+ photos se vendent 2× plus vite.',
-  "Réponds aux messages en moins d'une heure — ta moyenne est de 2 h 12 min.",
-];
+// Mini sparkline values — derives from real viewCount so it's coherent with
+// the actual listing without a per-day analytics endpoint yet.
+function makeTrend(seed: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < 7; i++) {
+    out.push(Math.max(2, Math.round((seed / 7) * (0.55 + ((i * 37) % 100) / 100))));
+  }
+  return out;
+}
 
 export default function ListingInsights() {
   const C = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const listing = LISTINGS.find((l) => l.id === id) ?? LISTINGS[0];
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    listingsApi
+      .get(id)
+      .then((l) => {
+        if (alive) setListing(l);
+      })
+      .catch(() => alive && setListing(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  const VIEWS_7D = useMemo(() => makeTrend(listing?.viewCount ?? 14), [listing?.viewCount]);
+
+  const RECOMMENDATIONS = useMemo(() => {
+    const recs: string[] = [];
+    if ((listing?.photos?.length ?? 0) < 3) {
+      recs.push("Ajoute 2 photos de plus — les annonces avec 5+ photos se vendent 2x plus vite.");
+    }
+    if ((listing?.favoritesCount ?? 0) < 3 && (listing?.viewCount ?? 0) > 20) {
+      recs.push("Baisse ton prix de 10 % pour obtenir ~30 % de vues en plus.");
+    }
+    if (!listing?.description || listing.description.length < 80) {
+      recs.push("Etoffe la description : indique les details (etat, dimensions, accessoires).");
+    }
+    if (recs.length === 0) {
+      recs.push("Tes indicateurs sont bons : reponds vite aux messages pour convertir.");
+    }
+    return recs;
+  }, [listing]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
+        <PageHeader title="Statistiques" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.n500} />
+        </View>
+      </View>
+    );
+  }
+  if (!listing) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
+        <PageHeader title="Statistiques" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+          <Text style={[t('body'), { color: C.n500 }]}>Annonce introuvable.</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
       <PageHeader title="Statistiques" subtitle={listing.title} />
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat label="Vues (7j)" value="127" delta="+18%" />
-          <Stat label="Sauvegardes" value="14" delta="+4" />
-          <Stat label="Messages" value="4" delta="+2" />
+          <Stat label="Vues totales" value={String(listing.viewCount ?? 0)} delta="cumulees" />
+          <Stat label="Favoris" value={String(listing.favoritesCount ?? 0)} delta="actifs" />
+          <Stat label="Photos" value={String(listing.photos?.length ?? 0)} delta="publiees" />
         </View>
 
         {/* Mini sparkline */}

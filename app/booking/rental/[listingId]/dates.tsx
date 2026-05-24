@@ -1,26 +1,54 @@
-import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useColors, radius as R, t } from '@/theme';
+import { useColors, t } from '@/theme';
 import { Calendar } from '@/components/calendar';
 import { MSButton, PageHeader } from '@/components';
-import { LISTINGS, type RentalListing } from '@/lib/fixtures';
+import { listingsApi, type Listing } from '@/lib/api';
 import { daysBetween, formatRange, type ISODate } from '@/lib/availability';
 
-// Buyer picks a date range to rent. Days the seller blocked are shown
-// disabled. Bottom sticky bar previews subtotal + day count and routes
-// to checkout when the user has a valid range.
+function formatEuros(cents: number): string {
+  return `${(cents / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+}
+
+// Buyer picks a date range to rent. Backend doesn't return unavailable dates
+// yet — we'll wire it once /listings/:id/availability is available. Bottom
+// sticky bar previews subtotal + day count and routes to checkout.
 export default function RentalDates() {
   const C = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { listingId } = useLocalSearchParams<{ listingId: string }>();
-  const listing = LISTINGS.find((l) => l.id === listingId) as RentalListing | undefined;
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<{ start: ISODate; end: ISODate } | null>(null);
 
-  if (!listing || listing.listingType !== 'rental') {
+  useEffect(() => {
+    if (!listingId) return;
+    let alive = true;
+    listingsApi
+      .get(listingId)
+      .then((l) => alive && setListing(l))
+      .catch(() => alive && setListing(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [listingId]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
+        <PageHeader title="Choisis les dates" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.n500} />
+        </View>
+      </View>
+    );
+  }
+  if (!listing || listing.listingType !== 'LOCATION') {
     return (
       <View style={{ flex: 1, backgroundColor: C.paper }}>
         <PageHeader title="Choisis les dates" />
@@ -31,15 +59,16 @@ export default function RentalDates() {
     );
   }
 
+  const dayPriceCents = listing.pricePerDayCents ?? 0;
   const days = range ? daysBetween(range.start, range.end) + 1 : 0;
-  const subtotal = days * listing.pricePerDay;
+  const subtotalCents = days * dayPriceCents;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>
       <PageHeader title="Choisis les dates" subtitle={listing.title} />
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32 }}>
         <Text style={[t('body'), { color: C.n600, marginBottom: 16, lineHeight: 22 }]}>
-          Appuie sur une date de début, puis sur une date de fin. Les jours grisés sont indisponibles.
+          Appuie sur une date de début, puis sur une date de fin.
         </Text>
         <View
           style={{
@@ -54,7 +83,7 @@ export default function RentalDates() {
             mode="range"
             range={range}
             onRangeChange={setRange}
-            disabled={listing.unavailableDates}
+            disabled={[]}
           />
         </View>
       </ScrollView>
@@ -81,7 +110,7 @@ export default function RentalDates() {
               {`${formatRange(range.start, range.end)} · ${days} jour${days === 1 ? '' : 's'}`}
             </Text>
             <Text style={{ fontFamily: 'InstrumentSans-SemiBold', fontSize: 17, color: C.ink }}>
-              {`€${subtotal}`}
+              {formatEuros(subtotalCents)}
             </Text>
           </View>
         ) : null}
@@ -96,7 +125,7 @@ export default function RentalDates() {
             )
           }
         >
-          {range ? `Continuer · €${subtotal}` : 'Choisis une période'}
+          {range ? `Continuer · ${formatEuros(subtotalCents)}` : 'Choisis une période'}
         </MSButton>
       </View>
     </View>

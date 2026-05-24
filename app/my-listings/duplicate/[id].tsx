@@ -1,10 +1,10 @@
-import { useEffect } from 'react';
-import { Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useColors, t } from '@/theme';
 import { PageHeader } from '@/components';
-import { LISTINGS } from '@/lib/fixtures';
+import { listingsApi, type Listing } from '@/lib/api';
 import { useSellDraft } from '@/lib/sellDraft';
 
 // Duplicate a listing — same as edit, but does NOT carry the original
@@ -14,21 +14,48 @@ export default function DuplicateListing() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const draft = useSellDraft();
-  const listing = LISTINGS.find((l) => l.id === id);
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    listingsApi
+      .get(id)
+      .then((l) => alive && setListing(l))
+      .catch(() => alive && setListing(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
 
   useEffect(() => {
     if (!listing) return;
+    const backendType =
+      listing.listingType === 'LOCATION'
+        ? 'rental'
+        : listing.listingType === 'SERVICE'
+          ? 'service'
+          : 'sale';
+    const priceEuros =
+      backendType === 'sale'
+        ? (listing.priceCents ?? 0) / 100
+        : backendType === 'rental'
+          ? (listing.pricePerDayCents ?? 0) / 100
+          : (listing.hourlyRateCents ?? listing.flatRateCents ?? 0) / 100;
     draft.reset();
     draft.set({
-      listingType: listing.listingType,
-      photos: [listing.photo],
+      listingType: backendType,
+      photos: listing.photos ?? [],
       title: `${listing.title} (copie)`,
-      category: listing.category,
-      description: listing.description,
-      price: listing.price,
+      category: listing.categoryLabel ?? '',
+      categoryId: listing.categoryId,
+      description: listing.description ?? '',
+      price: priceEuros,
     });
     const tid = setTimeout(() => {
-      router.replace((listing.listingType === 'service' ? '/sell/service/details' : '/sell/title') as any);
+      router.replace((backendType === 'service' ? '/sell/service/details' : '/sell/title') as any);
     }, 80);
     return () => clearTimeout(tid);
   }, [listing]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -37,7 +64,13 @@ export default function DuplicateListing() {
     <View style={{ flex: 1, backgroundColor: C.paper }}>
       <PageHeader title="Dupliquer" />
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={[t('body'), { color: C.n500 }]}>Préparation de ton brouillon…</Text>
+        {loading ? (
+          <ActivityIndicator color={C.n500} />
+        ) : !listing ? (
+          <Text style={[t('body'), { color: C.n500 }]}>Annonce introuvable.</Text>
+        ) : (
+          <Text style={[t('body'), { color: C.n500 }]}>Préparation de ton brouillon…</Text>
+        )}
       </View>
     </View>
   );

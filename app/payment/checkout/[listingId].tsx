@@ -1,17 +1,48 @@
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { CheckoutShell } from '@/components/payments/CheckoutShell';
-import { LISTINGS } from '@/lib/fixtures';
-import { useOrders, formatEuros } from '@/lib/orders';
+import { listingsApi, ordersApi, type Listing } from '@/lib/api';
+import { useToast } from '@/lib/toast';
+import { useColors } from '@/theme';
+
+function formatEuros(cents: number): string {
+  return `${(cents / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+}
 
 export default function CheckoutSale() {
   const router = useRouter();
+  const toast = useToast();
+  const C = useColors();
   const { listingId } = useLocalSearchParams<{ listingId: string }>();
-  const listing = LISTINGS.find((l) => l.id === listingId) ?? LISTINGS[0];
-  const addOrder = useOrders((s) => s.add);
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
 
-  const itemCents = listing.price * 100;
-  const feeCents = 95;
+  useEffect(() => {
+    if (!listingId) return;
+    let alive = true;
+    listingsApi
+      .get(listingId)
+      .then((l) => alive && setListing(l))
+      .catch(() => alive && setListing(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [listingId]);
+
+  if (loading || !listing) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={C.n500} />
+      </View>
+    );
+  }
+
+  const itemCents = listing.priceCents ?? 0;
+  const feeCents = itemCents > 0 ? Math.max(95, Math.round(itemCents * 0.05)) : 0;
   const totalCents = itemCents + feeCents;
 
   const fees = [
@@ -20,31 +51,23 @@ export default function CheckoutSale() {
     { label: 'Total', value: formatEuros(totalCents), emphasis: true as const },
   ];
 
-  const pay = () => {
-    const orderId = `o${Date.now()}`;
-    addOrder({
-      id: orderId,
-      listingId: listing.id,
-      listingTitle: listing.title,
-      listingThumb: listing.thumb,
-      type: 'sale',
-      buyerId: 'me',
-      sellerId: listing.sellerId,
-      amountCents: totalCents,
-      feeCents,
-      status: 'awaiting-pickup',
-      createdAt: new Date().toISOString(),
-      buyerConfirmed: false,
-      sellerConfirmed: false,
-    });
-    router.replace(`/payment/processing?orderId=${orderId}` as any);
+  const pay = async () => {
+    if (pending) return;
+    setPending(true);
+    try {
+      const order = await ordersApi.create(listing.id, totalCents);
+      router.replace(`/payment/processing?orderId=${order.id}` as any);
+    } catch (err) {
+      toast.error('Impossible de créer la commande. Réessaie.');
+      setPending(false);
+    }
   };
 
   return (
     <CheckoutShell
       title="Paiement"
-      thumb={listing.thumb}
-      subtitle={'à ' + listing.distanceLabel}
+      thumb={listing.photos?.[0]}
+      subtitle={listing.neighborhood ? `à ${listing.neighborhood}` : ''}
       fees={fees}
       ctaLabel={`Payer ${formatEuros(totalCents)}`}
       onPay={pay}

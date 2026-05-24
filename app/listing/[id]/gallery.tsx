@@ -1,14 +1,14 @@
-import { useMemo, useState } from 'react';
-import { Dimensions, Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Dimensions, Pressable, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { radius as R, t } from '@/theme';
 import { Icon } from '@/components';
-import { LISTINGS, getListing } from '@/lib/fixtures';
+import { listingsApi, type Listing } from '@/lib/api';
 
-// Phase 3 / Screen 35 — fullscreen photo gallery.
+// Phase 3 / Screen 35 — fullscreen photo gallery (backend-driven).
 // Black backdrop, glass close/save chrome, paginated photos with thumb strip.
 export default function Gallery() {
   const router = useRouter();
@@ -16,17 +16,49 @@ export default function Gallery() {
   const insets = useSafeAreaInsets();
   const screenW = Dimensions.get('window').width;
 
-  const listing = useMemo(() => getListing(id) ?? LISTINGS[3], [id]);
-  const photos = useMemo(
-    () => [
-      listing.photo,
-      ...LISTINGS.filter((l) => l.id !== listing.id)
-        .slice(0, 4)
-        .map((l) => l.photo),
-    ],
-    [listing.id, listing.photo],
-  );
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    listingsApi
+      .get(id)
+      .then((l) => {
+        if (alive) setListing(l);
+      })
+      .catch(() => {
+        if (alive) setListing(null);
+      })
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  const photos = useMemo(() => listing?.photos ?? [], [listing]);
   const [active, setActive] = useState(0);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0E0E0F', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color="#FFF" />
+      </View>
+    );
+  }
+  if (!listing || photos.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0E0E0F', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: '#FFF', textAlign: 'center' }}>Aucune photo disponible.</Text>
+        <Pressable
+          onPress={() => router.back()}
+          style={{ marginTop: 16, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.12)' }}
+        >
+          <Text style={{ color: '#FFF' }}>Retour</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0E0E0F' }}>
@@ -157,7 +189,7 @@ export default function Gallery() {
           paddingHorizontal: 16,
         }}
       >
-        {photos.map((p, i) => (
+        {photos.slice(0, 6).map((p, i) => (
           <View
             key={i}
             style={{

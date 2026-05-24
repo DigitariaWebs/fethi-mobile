@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useColors, radius as R, t } from '@/theme';
 import { MSButton, PageHeader } from '@/components';
-import { LISTINGS, CURRENT_USER } from '@/lib/fixtures';
+import { listingsApi, type Listing } from '@/lib/api';
 import { useSession } from '@/lib/session';
 
 // Buyer describes the service they need. Address defaults to home but
@@ -23,9 +23,25 @@ export default function ServiceDetails() {
   const insets = useSafeAreaInsets();
   const { listingId, date, from } = useLocalSearchParams<{ listingId: string; date: string; from: string }>();
   const sessionAddr = useSession((s) => s.address);
-  const listing = LISTINGS.find((l) => l.id === listingId);
+  const [listing, setListing] = useState<Listing | null>(null);
   const [details, setDetails] = useState('');
-  const [address, setAddress] = useState(sessionAddr || `${CURRENT_USER.neighborhood}, Lille`);
+  const [address, setAddress] = useState(sessionAddr || 'Lille');
+
+  useEffect(() => {
+    if (!listingId) return;
+    let alive = true;
+    listingsApi
+      .get(listingId)
+      .then((l) => {
+        if (!alive) return;
+        setListing(l);
+        if (!sessionAddr && l.neighborhood) setAddress(`${l.neighborhood}, Lille`);
+      })
+      .catch(() => alive && setListing(null));
+    return () => {
+      alive = false;
+    };
+  }, [listingId, sessionAddr]);
 
   const valid = details.trim().length >= 8 && address.trim().length >= 6;
 

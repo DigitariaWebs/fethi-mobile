@@ -1,12 +1,12 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
 import { useColors, radius as R, shadow as Sh, t } from '@/theme';
 import { MSButton, PageHeader } from '@/components';
-import { LISTINGS } from '@/lib/fixtures';
+import { listingsApi, type Listing } from '@/lib/api';
 import { useToast } from '@/lib/toast';
 
 const TIERS = [
@@ -21,10 +21,45 @@ export default function PromoteListing() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const listing = LISTINGS.find((l) => l.id === id) ?? LISTINGS[0];
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
   const [tier, setTier] = useState<typeof TIERS[number]['id']>('7d');
 
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    listingsApi
+      .get(id)
+      .then((l) => alive && setListing(l))
+      .catch(() => alive && setListing(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
   const selected = TIERS.find((tt) => tt.id === tier)!;
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
+        <PageHeader title="Booster l'annonce" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.n500} />
+        </View>
+      </View>
+    );
+  }
+  if (!listing) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
+        <PageHeader title="Booster l'annonce" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+          <Text style={[t('body'), { color: C.n500 }]}>Annonce introuvable.</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>

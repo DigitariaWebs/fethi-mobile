@@ -1,19 +1,51 @@
-import { Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
 import { useColors, radius as R, shadow as Sh, t } from '@/theme';
 import { MSButton } from '@/components';
-import { getOrder, formatEuros } from '@/lib/orders';
-import { SELLERS } from '@/lib/fixtures';
+import { ordersApi, publicUsersApi, type ApiOrder, type PublicProfile } from '@/lib/api';
+
+function formatEuros(cents: number): string {
+  return `${(cents / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+}
 
 export default function PaymentSuccess() {
   const C = useColors();
   const router = useRouter();
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
-  const order = orderId ? getOrder(orderId) : undefined;
-  const seller = order ? SELLERS[order.sellerId] : undefined;
+  const [order, setOrder] = useState<ApiOrder | null>(null);
+  const [seller, setSeller] = useState<PublicProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Charge l'order depuis le backend. Le webhook Stripe marque le paiement
+  // SUCCEEDED en arriere-plan, donc on poll pas — on affiche juste les details.
+  useEffect(() => {
+    if (!orderId) {
+      setLoading(false);
+      return;
+    }
+    let alive = true;
+    ordersApi
+      .get(orderId)
+      .then(async (o) => {
+        if (!alive) return;
+        setOrder(o);
+        if (o.sellerId) {
+          publicUsersApi
+            .get(o.sellerId)
+            .then((s) => alive && setSeller(s))
+            .catch(() => {});
+        }
+      })
+      .catch(() => {})
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [orderId]);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper, padding: 24, justifyContent: 'center' }}>
@@ -42,9 +74,11 @@ export default function PaymentSuccess() {
         <Text style={{ fontFamily: 'InstrumentSans-SemiBold', fontSize: 28, color: C.ink, letterSpacing: -0.4 }}>
           Paiement reçu.
         </Text>
-        {order ? (
+        {loading ? (
+          <ActivityIndicator color={C.n500} style={{ marginTop: 10 }} />
+        ) : order ? (
           <Text style={[t('body'), { color: C.n600, marginTop: 6 }]}>
-            {`${formatEuros(order.amountCents)} · commande ${order.id}`}
+            {`${formatEuros(order.amountCents)} · commande ${order.id.slice(0, 8)}`}
           </Text>
         ) : null}
       </Animated.View>
@@ -74,7 +108,7 @@ export default function PaymentSuccess() {
             fullWidth
             onPress={() => router.replace(`/(tabs)/messages/${seller.id}` as any)}
           >
-            {`Écrire à ${seller.name}`}
+            {`Écrire à ${seller.displayName ?? 'le vendeur'}`}
           </MSButton>
         ) : null}
         {order ? (

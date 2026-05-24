@@ -1,27 +1,63 @@
-import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useColors, t } from '@/theme';
 import { Calendar } from '@/components/calendar';
 import { MSButton, PageHeader } from '@/components';
-import { LISTINGS } from '@/lib/fixtures';
+import { listingsApi, type Listing } from '@/lib/api';
 import { useToast } from '@/lib/toast';
 import type { ISODate } from '@/lib/availability';
 
 // Editable availability for a rental or service. Multi-select calendar
 // where tapping a date toggles unavailable. Save bumps a toast and pops.
+// NOTE backend: il n'y a pas encore d'endpoint pour persister les dates
+// indisponibles. On garde l'UI cote client et on enverra un PATCH quand
+// l'endpoint sera dispo (cf. ListingService.setUnavailableDates).
 export default function ListingAvailability() {
   const C = useColors();
   const router = useRouter();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const listing = LISTINGS.find((l) => l.id === id) ?? LISTINGS[0];
-  const initial =
-    listing.listingType === 'rental' ? listing.unavailableDates ?? [] : [];
-  const [unavailable, setUnavailable] = useState<ISODate[]>(initial);
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState<ISODate[]>([]);
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    listingsApi
+      .get(id)
+      .then((l) => alive && setListing(l))
+      .catch(() => alive && setListing(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
+        <PageHeader title="Disponibilites" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.n500} />
+        </View>
+      </View>
+    );
+  }
+  if (!listing) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
+        <PageHeader title="Disponibilites" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+          <Text style={[t('body'), { color: C.n500 }]}>Annonce introuvable.</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.paper }}>

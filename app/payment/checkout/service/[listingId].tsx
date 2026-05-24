@@ -1,62 +1,85 @@
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { CheckoutShell } from '@/components/payments/CheckoutShell';
-import { LISTINGS, type ServiceListing } from '@/lib/fixtures';
-import { useOrders, formatEuros } from '@/lib/orders';
+import { listingsApi, ordersApi, type Listing } from '@/lib/api';
+import { useToast } from '@/lib/toast';
+import { useColors } from '@/theme';
+
+function formatEuros(cents: number): string {
+  return `${(cents / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+}
 
 export default function CheckoutService() {
   const router = useRouter();
+  const toast = useToast();
+  const C = useColors();
   const { listingId, date, from } = useLocalSearchParams<{ listingId: string; date: string; from: string }>();
-  const listing = LISTINGS.find((l) => l.id === listingId) as ServiceListing | undefined;
-  const addOrder = useOrders((s) => s.add);
-  if (!listing || listing.listingType !== 'service') return null;
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
 
-  // For hourly services we estimate one hour at the minimum-booking rate;
-  // flat-rate services charge the flat fee. Real backend would honor the
-  // user-picked duration.
-  const hours = listing.hourlyRate ? Math.max(1, Math.round((listing.availabilityWindows[0]?.from ? 60 : 60) / 60)) : 1;
-  const subtotalCents =
-    (listing.flatRate ? listing.flatRate : (listing.hourlyRate ?? 0) * hours) * 100;
-  const feeCents = 95;
+  useEffect(() => {
+    if (!listingId) return;
+    let alive = true;
+    listingsApi
+      .get(listingId)
+      .then((l) => alive && setListing(l))
+      .catch(() => alive && setListing(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [listingId]);
+
+  if (loading || !listing) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={C.n500} />
+      </View>
+    );
+  }
+
+  // For hourly services we estimate one hour at the booked rate; flat-rate
+  // services charge the flat fee. Real backend would honor the user-picked
+  // duration.
+  const hours = 1;
+  const subtotalCents = listing.flatRateCents
+    ? listing.flatRateCents
+    : (listing.hourlyRateCents ?? 0) * hours;
+  const feeCents = Math.round(subtotalCents * 0.05);
   const totalCents = subtotalCents + feeCents;
 
   const fees = [
     {
-      label: listing.flatRate ? 'Frais de réservation' : `€${listing.hourlyRate}/h × ${hours}h`,
+      label: listing.flatRateCents
+        ? 'Frais de réservation'
+        : `${formatEuros(listing.hourlyRateCents ?? 0)}/h × ${hours}h`,
       value: formatEuros(subtotalCents),
     },
     { label: 'Frais de service', value: formatEuros(feeCents), muted: true },
     { label: 'Total', value: formatEuros(totalCents), emphasis: true as const },
   ];
 
-  const pay = () => {
-    const to = `${String(parseInt(from?.split(':')[0] ?? '0', 10) + hours).padStart(2, '0')}:00`;
-    const orderId = `o${Date.now()}`;
-    addOrder({
-      id: orderId,
-      listingId: listing.id,
-      listingTitle: listing.title,
-      listingThumb: listing.thumb,
-      type: 'service',
-      buyerId: 'me',
-      sellerId: listing.sellerId,
-      amountCents: totalCents,
-      feeCents,
-      serviceSlot: { date, from, to },
-      status: 'awaiting-pickup',
-      createdAt: new Date().toISOString(),
-      buyerConfirmed: false,
-      sellerConfirmed: false,
-    });
-    router.replace(`/payment/processing?orderId=${orderId}` as any);
+  const pay = async () => {
+    if (pending) return;
+    setPending(true);
+    try {
+      const order = await ordersApi.create(listing.id, totalCents);
+      router.replace(`/payment/processing?orderId=${order.id}` as any);
+    } catch (err) {
+      toast.error('Impossible de créer la commande. Réessaie.');
+      setPending(false);
+    }
   };
 
   return (
     <CheckoutShell
       title="Paiement"
-      thumb={listing.thumb}
-      subtitle={`à ${listing.distanceLabel}`}
-      meta={`${date} · ${from}`}
+      thumb={listing.photos?.[0]}
+      subtitle={listing.neighborhood ? `à ${listing.neighborhood}` : ''}
+      meta={`${date ?? ''} · ${from ?? ''}`}
       fees={fees}
       ctaLabel={`Payer ${formatEuros(totalCents)}`}
       onPay={pay}

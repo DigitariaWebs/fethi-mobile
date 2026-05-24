@@ -45,13 +45,6 @@
       "expo-router",
       "expo-font",
       [
-        "@stripe/stripe-react-native",
-        {
-          "merchantIdentifier": "merchant.com.mystreet.app",
-          "enableGooglePay": true
-        }
-      ],
-      [
         "expo-build-properties",
         {
           "ios": {
@@ -61,7 +54,8 @@
             "minSdkVersion": 24,
             "compileSdkVersion": 36,
             "targetSdkVersion": 36,
-            "buildToolsVersion": "36.0.0"
+            "buildToolsVersion": "36.0.0",
+            "usesCleartextTraffic": true
           }
         }
       ],
