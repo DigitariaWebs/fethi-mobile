@@ -16,7 +16,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "buildNumber": "1",
+      "buildNumber": "6",
       "bundleIdentifier": "com.mystreet.app",
       "icon": "./assets/images/favicon.png",
       "infoPlist": {
@@ -27,7 +27,7 @@
       }
     },
     "android": {
-      "versionCode": 1,
+      "versionCode": 6,
       "package": "com.mystreet.app",
       "icon": "./assets/images/favicon.png",
       "adaptiveIcon": {

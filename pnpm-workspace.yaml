@@ -1,0 +1,3 @@
+allowBuilds:
+  postinstall-postinstall: true
+  unrs-resolver: true
